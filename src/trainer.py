@@ -6,6 +6,19 @@ def train_loop(model, train_loader, val_loader, optimizer, criterion, device, cf
     '''
     Return train_loss_list, val_loss_list, train_acc_list, val_acc_list
     '''
+    if log:
+        wandb.init(
+            project=cfg['project_name'],
+            config={
+                "learning_rate": cfg['learning_rate'],
+                "architecture": cfg['architecture'],
+                "dataset": cfg['dataset'],
+                "epochs": cfg['num_epochs'],
+                "batch_size": cfg['batch_size'],
+                "batches_per_epoch": cfg['batches_per_epoch']
+            }
+        )
+
     data_key = cfg['data_key']
     seg_key = cfg['seg_key']
     stats = {
