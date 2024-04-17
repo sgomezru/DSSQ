@@ -6,7 +6,7 @@ data:
         pmri:
             data_path: '/data/Data/PMRI/'
             data_key: 'image'
-            data_seg: 'label'
+            seg_key: 'label'
 unet:
     prostate:
         pre: 'unet-prostate'
@@ -17,7 +17,7 @@ unet:
             load_only_present: False
             augment: True
             validation: True
-            batch_size: 32
+            batch_size: 16
             num_batches_per_epoch: 256
             num_val_batches_per_epoch: 32 
             epochs: 100
