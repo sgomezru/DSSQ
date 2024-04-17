@@ -3,7 +3,7 @@ from monai.networks.nets import DynUNet, UNet
 def get_model(cfg):
     _, model, n_filters, depth, num_res_units = cfg.run.arch.split('-')
     n_filters, depth, num_res_units = int(n_filters), int(depth), int(num_res_units)
-    model_config = cfg[model][cfg.run.dataset_key]
+    model_config = cfg[model][cfg.run.dataset_key][cfg.run.dataset_subkey]
     net = None
     if model == 'unet':
         channels = [n_filters * 2 ** i for i in range(depth)]
@@ -29,6 +29,3 @@ def get_model(cfg):
         )
     assert net is not None, 'Invalid model argument'
     return net
-
-class ModelManager:
-    pass

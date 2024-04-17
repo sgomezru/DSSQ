@@ -1,6 +1,9 @@
+fs:
+    weight_dir:
+    log_dir:
 wandb: 
     log: True
-    project: 'my_project'
+    project: 'MyProj'
 data: 
     prostate:
         pmri:
@@ -9,17 +12,17 @@ data:
             seg_key: 'label'
 unet:
     prostate:
-        pre: 'unet-prostate'
-        n_chans_in: 1
-        n_chans_out: 2
-        training:
-            vendor: 'siemens'
-            load_only_present: False
-            augment: True
-            validation: True
-            batch_size: 16
-            num_batches_per_epoch: 256
-            num_val_batches_per_epoch: 32 
-            epochs: 100
-            patience: 4
-            lr: 0.001
+        pmri:
+            n_chans_in: 1
+            n_chans_out: 2
+            training:
+                vendor: 'siemens'
+                load_only_present: False
+                augment: True
+                validation: True
+                batch_size: 16
+                num_batches_per_epoch: 256
+                num_val_batches_per_epoch: 32 
+                epochs: 100
+                patience: 4
+                lr: 0.001

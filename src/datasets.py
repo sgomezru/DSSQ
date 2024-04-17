@@ -4,7 +4,6 @@ import random
 import torch
 from pathlib import Path
 from torch.utils.data import Dataset
-from typing import List
 
 class MultisiteMRIProstateDataset(Dataset):
     '''
@@ -113,14 +112,14 @@ def load_dataset(cfg):
     if dataset_key == 'prostate':
         if dataset_subkey == 'pmri':
             data['train'] = MultisiteMRIProstateDataset(datapath=cfg.data.prostate.pmri.data_path,
-                                                        vendor=cfg[net].prostate.training.vendor,
+                                                        vendor=cfg[net].prostate.pmri.training.vendor,
                                                         split='train',
-                                                        load_only_present=cfg[net].prostate.training.load_only_present)
+                                                        load_only_present=cfg[net].prostate.pmri.training.load_only_present)
             if cfg.run.validation:
                 data['valid'] = MultisiteMRIProstateDataset(datapath=cfg.data.prostate.pmri.data_path,
-                                                        vendor=cfg[net].prostate.training.vendor,
+                                                        vendor=cfg[net].prostate.pmri.training.vendor,
                                                         split='valid',
-                                                        load_only_present=cfg[net].prostate.training.load_only_present)
+                                                        load_only_present=cfg[net].prostate.pmri.training.load_only_present)
 
     assert len(data) > 0, "No data found to be load"
     return data
