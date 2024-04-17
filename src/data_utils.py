@@ -16,8 +16,10 @@ from monai.transforms import (
 class Transform(object):
 
     def __init__(self, cfg):
-        data_key = cfg['data_key']
-        seg_key = cfg['seg_key']
+        dataset_key = cfg.run.dataset_key
+        dataset_subkey = cfg.run.dataset_subkey
+        data_key = cfg.data[dataset_key][dataset_subkey].data_key
+        seg_key = cfg.data[dataset_key][dataset_subkey].seg_key
         monai_io_transforms = [
             ToTensord(keys=[data_key, seg_key]),
         ]

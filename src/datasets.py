@@ -104,12 +104,23 @@ class MultisiteMRIProstateDataset(Dataset):
             "label": self.target[..., idx]
         }
 
-def load_dataset(cfg, splits: List):
-
+def load_dataset(cfg):
+    dataset_key = cfg.run.dataset_key
+    dataset_subkey = cfg.run.dataset_subkey
+    model_arch = cfg.run.arch
+    net = model_arch.split('-')[1]
     data = {}
-    if cfg['dataset'] == 'prostate':
-        for split in splits:
-            data[split] = MultisiteMRIProstateDataset(cfg['datapath'], cfg['vendor'], split)
+    if dataset_key == 'prostate':
+        if dataset_subkey == 'pmri':
+            data['train'] = MultisiteMRIProstateDataset(datapath=cfg.data.prostate.pmri.data_path,
+                                                        vendor=cfg[net].prostate.training.vendor,
+                                                        split='train',
+                                                        load_only_present=cfg[net].prostate.training.load_only_present)
+            if cfg.run.validation:
+                data['valid'] = MultisiteMRIProstateDataset(datapath=cfg.data.prostate.pmri.data_path,
+                                                        vendor=cfg[net].prostate.training.vendor,
+                                                        split='valid',
+                                                        load_only_present=cfg[net].prostate.training.load_only_present)
 
     assert len(data) > 0, "No data found to be load"
     return data

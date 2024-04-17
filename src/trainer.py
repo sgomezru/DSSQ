@@ -6,28 +6,32 @@ def train_loop(model, train_loader, val_loader, optimizer, criterion, device, cf
     '''
     Return train_loss_list, val_loss_list, train_acc_list, val_acc_list
     '''
+    dataset_key = cfg.run.dataset_key
+    dataset_subkey = cfg.run.dataset_subkey
+    arch = cfg.run.arch
+    model_details = cfg[arch.split('-')[1]][dataset_key]
     if log:
         wandb.init(
-            project=cfg['project_name'],
+            project=cfg.wandb.project,
             config={
-                "learning_rate": cfg['learning_rate'],
-                "architecture": cfg['architecture'],
-                "dataset": cfg['dataset'],
-                "epochs": cfg['num_epochs'],
-                "batch_size": cfg['batch_size'],
-                "batches_per_epoch": cfg['batches_per_epoch']
+                "learning_rate": model_details.training.lr,
+                "architecture": arch,
+                "dataset": dataset_key + '-' + dataset_subkey,
+                "epochs": model_details.training.epochs,
+                "batch_size": model_details.training.batch_size,
+                "batches_per_epoch": model_details.training.num_batches_per_epoch
             }
         )
 
-    data_key = cfg['data_key']
-    seg_key = cfg['seg_key']
+    data_key = cfg.data[dataset_key][dataset_subkey].data_key
+    seg_key = cfg.data[dataset_key][dataset_subkey].seg_key
     stats = {
         'train_loss_list':  [],
         'val_loss_list' : [],
         'train_acc_list' : [],
         'val_acc_list' : []
     }
-    for epoch in tqdm(range(cfg['num_epochs']), desc="Epochs", position=0):
+    for epoch in tqdm(range(model_details.training.epochs), desc="Epochs", position=0):
         model.train()
         train_loss = 0
         correct_pixels = 0
@@ -69,4 +73,7 @@ def train_loop(model, train_loader, val_loader, optimizer, criterion, device, cf
         if log:
             wandb.log({'train_acc': train_acc, 'val_acc': val_acc,
                         'train_loss': train_loss, 'val_loss': val_loss})
+    if log:
+        wandb.finish()
+
     return stats
