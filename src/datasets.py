@@ -49,7 +49,6 @@ class MultisiteMRIProstateDataset(Dataset):
         self._load_data()
 
     def _load_data(self):
-        print("Loading dataset...")
         self.input = []
         self.target = []
         vendor_sites = [site for site, info in self._VENDORS_INFO.items()

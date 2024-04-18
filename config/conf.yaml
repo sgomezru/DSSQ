@@ -1,6 +1,6 @@
 fs:
-    weight_dir:
-    log_dir:
+    weight_dir: '/workspace/src/out/weights'
+    log_dir: '/workspace/src/out/logs'
 wandb: 
     log: True
     project: 'MyProj'

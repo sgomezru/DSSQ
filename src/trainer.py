@@ -6,7 +6,8 @@ import wandb
 from monai.data import Dataset, DataLoader
 from pathlib import Path
 from tqdm import tqdm
-from torch import optim
+from torch import optim, nn
+from typing import Dict
 
 base_path = Path('/workspace/src').resolve()
 src_path = base_path / 'src'
@@ -16,85 +17,9 @@ from datasets import load_dataset
 from data_utils import Transform
 from models import get_model
 
-def train_loop(model, train_loader, val_loader, optimizer, criterion, device, cfg, log=False):
-    '''
-    Return train_loss_list, val_loss_list, train_acc_list, val_acc_list
-    '''
-    dataset_key = cfg.run.dataset_key
-    dataset_subkey = cfg.run.dataset_subkey
-    arch = cfg.run.arch
-    model_details = cfg[arch.split('-')[1]][dataset_key]
-    if log:
-        wandb.init(
-            project=cfg.wandb.project,
-            config={
-                "learning_rate": model_details.training.lr,
-                "architecture": arch,
-                "dataset": dataset_key + '-' + dataset_subkey,
-                "epochs": model_details.training.epochs,
-                "batch_size": model_details.training.batch_size,
-                "batches_per_epoch": model_details.training.num_batches_per_epoch
-            }
-        )
-
-    data_key = cfg.data[dataset_key][dataset_subkey].data_key
-    seg_key = cfg.data[dataset_key][dataset_subkey].seg_key
-    stats = {
-        'train_loss_list':  [],
-        'val_loss_list' : [],
-        'train_acc_list' : [],
-        'val_acc_list' : []
-    }
-    for epoch in tqdm(range(model_details.training.epochs), desc="Epochs", position=0):
-        model.train()
-        train_loss = 0
-        correct_pixels = 0
-        num_pixels = 0
-        for batch in tqdm(train_loader, desc="Train batches", leave=False, position=1):
-            optimizer.zero_grad()
-            x = batch[data_key].float().to(device)
-            y = batch[seg_key].squeeze(1).to(device)
-            out = model(x)
-            pred = torch.argmax(out.detach(), dim = 1)
-            loss = criterion(out, y)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item() * x.shape[0]
-            correct_pixels += (pred == y).sum().item()
-            num_pixels += y.nelement()
-        train_loss /= len(train_loader.dataset)
-        stats['train_loss_list'].append(train_loss)
-        train_acc = correct_pixels / num_pixels
-        stats['train_acc_list'].append(train_acc)
-        model.eval()
-        val_loss = 0
-        correct_pixels = 0
-        num_pixels = 0
-        with torch.no_grad():
-            for batch in tqdm(val_loader, desc="Val batches", leave=False, position=1):
-                x = batch[data_key].float().to(device)
-                y = batch[seg_key].squeeze(1).to(device)
-                out = model(x)
-                pred = torch.argmax(out, dim = 1)
-                loss = criterion(out, y)
-                val_loss += loss.item() * x.shape[0]
-                correct_pixels += (pred == y).sum().item()
-                num_pixels += y.nelement()
-            val_loss /= len(val_loader.dataset)
-            stats['val_loss_list'].append(val_loss)
-            val_acc = correct_pixels / num_pixels
-            stats['val_acc_list'].append(val_acc)
-        if log:
-            wandb.log({'train_acc': train_acc, 'val_acc': val_acc,
-                        'train_loss': train_loss, 'val_loss': val_loss})
-    if log:
-        wandb.finish()
-
-    return stats
-
 class TrainerManager(object):
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, criterion = nn.CrossEntropyLoss(), eval_metrics : Dict[str, nn.Module] = None):
         self.dataset_key = cfg.run.dataset_key
         self.dataset_subkey = cfg.run.dataset_subkey
         self.arch = cfg.run.arch
@@ -107,13 +32,18 @@ class TrainerManager(object):
         self.model = get_model(cfg)
         self.model = self.model.to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.training_config.training.lr)
-        self.history = { 'train loss': [], 'valid loss': [] }
+        self.criterion = criterion
+        self.history = { 'train_loss': [], 'valid_loss': [] }
+        self.eval_metrics = eval_metrics
         self.transforms = Transform(cfg)
-        if cfg.run.load is True: self.load_model(cfg);
-        if cfg.run.load_dataset is True: self.load_dataloaders(cfg);
+        if self.eval_metrics is not None:
+            self.history = {**self.history, **{metric: [] for metric in self.eval_metrics.keys()}}
+        if cfg.run.get('load') is True: self.load_model();
+        if cfg.run.get('load_dataset') is True: self.load_dataloaders(cfg);
         if cfg.wandb.log is True: self.init_logging(cfg);
 
     def init_logging(self, cfg):
+        self.log = True
         wandb.init(
             project=cfg.wandb.project,
             config={
@@ -125,6 +55,9 @@ class TrainerManager(object):
                 "batches_per_epoch": self.training_config.training.num_batches_per_epoch
             }
         )
+
+    def stop_logging(self):
+        wandb.finish()
 
     def load_dataloaders(self, cfg):
         print('Loading datasets...')
@@ -161,29 +94,27 @@ class TrainerManager(object):
             train_acc = correct_pixels / num_pixels
             self.history['train_acc'].append(train_acc)
             self.model.eval()
-            val_loss = 0
+            valid_loss = 0
             correct_pixels = 0
             num_pixels = 0
             with torch.no_grad():
-                for batch in tqdm(self.val_loader, desc="Val batches", leave=False, position=1):
+                for batch in tqdm(self.valid_loader, desc="Validation batches", leave=False, position=1):
                     x = batch[self.data_key].float().to(self.device)
                     y = batch[self.seg_key].squeeze(1).to(self.device)
                     out = self.model(x)
                     pred = torch.argmax(out, dim = 1)
                     loss = self.criterion(out, y)
-                    val_loss += loss.item() * x.shape[0]
+                    valid_loss += loss.item() * x.shape[0]
                     correct_pixels += (pred == y).sum().item()
                     num_pixels += y.nelement()
-                val_loss /= len(self.val_loader.dataset)
-                self.history['val_loss'].append(val_loss)
-                val_acc = correct_pixels / num_pixels
-                self.history['val_acc'].append(val_acc)
+                valid_loss /= len(self.valid_loader.dataset)
+                self.history['valid_loss'].append(valid_loss)
+                valid_acc = correct_pixels / num_pixels
+                self.history['valid_acc'].append(valid_acc)
             if self.log:
-                wandb.log({'train_acc': train_acc, 'val_acc': val_acc,
-                            'train_loss': train_loss, 'val_loss': val_loss})
-        # if self.log:
-        #     wandb.finish()
-    print(f'Finished training')
+                wandb.log({'train_acc': train_acc, 'valid_acc': valid_acc,
+                            'train_loss': train_loss, 'valid_loss': valid_loss})
+        print(f'Finished training')
 
     def eval(self):
         pass
@@ -207,10 +138,11 @@ class TrainerManager(object):
         print(f'Model saved')
     
     def load_model(self):
-        savepath = f'{self.weight_dir}{self.name}_best.pt'
-        checkpoint = torch.load(savepath)
+        savepath = self.weight_dir / f'{self.name}_best.pt'
+        checkpoint = torch.load(savepath, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        savepath = f'{self.log_dir}{self.name}.npy'
+        print(self.log_dir)
+        savepath = self.log_dir / f'{self.name}.npy'
         self.history = np.load(savepath, allow_pickle='TRUE').item()
         print(f'Model and optimizer params loaded, as well as stats history')
