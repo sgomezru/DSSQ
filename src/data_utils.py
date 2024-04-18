@@ -31,10 +31,17 @@ class Transform(object):
             CastToTyped(keys=[data_key, seg_key], dtype=(np.float32, torch.long)),
             EnsureTyped(keys=[data_key, seg_key])
         ]
+        monai_noise_transforms = [
+            RandGaussianNoised(keys=[data_key], std=0.01, prob=0.15),
+            RandGaussianSmoothd(keys=[data_key], sigma_x=(0.5, 1.15),
+                                sigma_y=(0.5, 1.15), prob=0.15),
+            RandScaleIntensityd(keys=[data_key], factors=0.3, prob=0.15),
+        ]
         self.transforms = {
             'base_transforms': monai_io_transforms + monai_type_transforms,
             'spatial_transforms': monai_spatial_transforms,
-            'all_transforms': monai_io_transforms + monai_spatial_transforms + monai_type_transforms
+            'noise_transforms': monai_noise_transforms,
+            'all_transforms': monai_io_transforms + monai_spatial_transforms + monai_noise_transforms + monai_type_transforms
         }
 
     def get_transforms(self, arg: str):

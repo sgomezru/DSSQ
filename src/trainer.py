@@ -72,6 +72,8 @@ class TrainerManager(object):
         self.seg_key = cfg.data[self.dataset_key][self.dataset_subkey].seg_key
     
     def fit(self):
+        best_train_loss = np.inf
+        best_valid_loss = np.inf
         for epoch in tqdm(range(self.training_config.training.epochs), desc="Epochs", position=0):
             self.model.train()
             train_loss = 0
@@ -111,6 +113,12 @@ class TrainerManager(object):
                 self.history['valid_loss'].append(valid_loss)
                 valid_acc = correct_pixels / num_pixels
                 self.history['valid_acc'].append(valid_acc)
+            if train_loss < best_train_loss:
+                best_train_loss = train_loss
+                self.save_model(epoch)
+            if valid_loss < best_valid_loss:
+                best_valid_loss = valid_loss
+                self.save_model(epoch)
             if self.log:
                 wandb.log({'train_acc': train_acc, 'valid_acc': valid_acc,
                             'train_loss': train_loss, 'valid_loss': valid_loss})
@@ -126,13 +134,14 @@ class TrainerManager(object):
         np.save(savepath, self.history)
         print(f'History stats of model saved')
     
-    def save_model(self):
+    def save_model(self, epoch):
         if(not os.path.exists(self.weight_dir)):
             os.makedirs(self.weight_dir)
         savepath = f'{self.weight_dir}{self.name}_best.pt'
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'epoch': epoch
         }, savepath)
         self.save_stats_history()
         print(f'Model saved')

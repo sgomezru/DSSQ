@@ -16,9 +16,12 @@ from trainer import TrainerManager
 DATASET_KEY = 'prostate'
 DATASET_SUBKEY = 'pmri'
 ARCH = 'monai-unet-64-4-4'
-PROJECT_NAME = 'trainermanager'
+PROJECT_NAME = 'mini'
 VALIDATION = True
-LOG = False
+LOG = True
+LOAD_MODEL = False
+LOAD_DATASETS = True
+NUM_EPOCHS = 300
 cfg = OmegaConf.load(cfg_path / 'conf.yaml')
 OmegaConf.update(cfg, 'run.dataset_key', DATASET_KEY)
 OmegaConf.update(cfg, 'run.dataset_subkey', DATASET_SUBKEY)
@@ -26,14 +29,13 @@ OmegaConf.update(cfg, 'run.arch', ARCH)
 OmegaConf.update(cfg, 'run.validation', VALIDATION)
 OmegaConf.update(cfg, 'wandb.project', PROJECT_NAME)
 OmegaConf.update(cfg, 'wandb.log', LOG)
-
-### If want to load a model set to True
-OmegaConf.update(cfg, 'run.load', True)
-
-### If want to load the dataset
-OmegaConf.update(cfg, 'run.load_dataset', False)
+OmegaConf.update(cfg, f'unet.{DATASET_KEY}.{DATASET_SUBKEY}.training.epochs', NUM_EPOCHS)
+### If want to load a pre-trained model
+OmegaConf.update(cfg, 'run.load', LOAD_MODEL)
+### If want to load the datasets
+OmegaConf.update(cfg, 'run.load_dataset', LOAD_DATASETS)
 ###########################################################################
 
 trainer = TrainerManager(cfg, eval_metrics = {'train_acc': 0, 'valid_acc': 1})
-# trainer.fit()
-print(trainer.history)
+trainer.fit()
+trainer.stop_logging()
