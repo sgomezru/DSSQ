@@ -130,14 +130,14 @@ class TrainerManager(object):
     def save_stats_history(self):
         if(not os.path.exists(self.log_dir)):
             os.makedirs(self.log_dir)
-        savepath = f'{self.log_dir}{self.name}.npy'
+        savepath = self.log_dir / f'{self.name}.npy'
         np.save(savepath, self.history)
         print(f'History stats of model saved')
     
     def save_model(self, epoch):
         if(not os.path.exists(self.weight_dir)):
             os.makedirs(self.weight_dir)
-        savepath = f'{self.weight_dir}{self.name}_best.pt'
+        savepath = self.weight_dir / f'{self.name}_best.pt'
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
@@ -151,7 +151,6 @@ class TrainerManager(object):
         checkpoint = torch.load(savepath, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print(self.log_dir)
         savepath = self.log_dir / f'{self.name}.npy'
         self.history = np.load(savepath, allow_pickle='TRUE').item()
         print(f'Model and optimizer params loaded, as well as stats history')
