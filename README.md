@@ -3,12 +3,13 @@
 
 ### Tasks
 #### Configuration
-1. [] Define datasets and code their dataloaders
+1. [x] Define datasets and code their dataloaders
 2. [] Define model and code their initialization
-3. [] Set up and code training loop
-4. [] Set up logging system
+    - [x] Monai's regular UNet
+3. [x] Set up and code training loop -> ModelAdapter's code mainly
+4. [x] Set up logging system -> wandb
 #### Phase 1 - Add-on PCA module replication and comparison
-1. [] Train base model
+1. [] Train base model -> Currently here, trying for good/decent results in PMRI dataset
 2. [] Code flexible module attachment in base model
 3. [] Include PCA module in bottleneck
 4. [] Train PCA attached model (Probably requires intermediate step of Mahalanobis distance evaluation)
