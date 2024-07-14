@@ -56,5 +56,4 @@ docker run \
 	--ipc=host \
 	--mount type=bind,source="/home/gomez/out",target=/workspace/out \
 	--mount type=bind,source="/home/gomez/Data/",target=/data/Data \
-	--mount type=bind,source="/home/gomez/DSSQ",target=/src/DSSQ \
 	$name

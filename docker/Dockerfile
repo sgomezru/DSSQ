@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:24.03-py3
+FROM nvcr.io/nvidia/pytorch:23.10-py3
 
 # ARG user
 # ARG uid
@@ -46,7 +46,7 @@ RUN apt-get install -y \
 	tmux
 
 ### - PIP
-RUN pip install --upgrade \ 
+RUN pip install \
 	wandb \
 	deep-pipe \
 	scikit-learn \
