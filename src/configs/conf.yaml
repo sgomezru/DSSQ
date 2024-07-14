@@ -1,0 +1,29 @@
+debug: False
+wandb: 
+    log: True
+    project: 'DSSQ'
+fs: 
+    weight_dir: '/workspace/out/weights'
+    log_dir: '/workspace/out/logs'
+data: 
+    prostate:
+        pmri:
+            data_path: '/data/Data/PMRI/'
+unet:
+    prostate:
+        pre: 'pmri_unet'
+        n_chans_in: 1
+        n_filters_init: 8
+        n_chans_out: 2
+        training:
+            vendor: 'siemens'
+            load_only_present: True
+            augment: True
+            validation: True
+            subset: False
+            batch_size: 32
+            num_batches_per_epoch: 250
+            num_val_batches_per_epoch: 25 
+            epochs: 200
+            patience: 8
+            lr: 0.001

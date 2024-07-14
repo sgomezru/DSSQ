@@ -1,0 +1,6 @@
+.env
+.venv
+.ipynb_checkpoints
+**/wandb/*
+*.npy
+*.pkl
