@@ -7,14 +7,6 @@ from sklearn.decomposition import IncrementalPCA, PCA
 from copy import deepcopy
 from typing import Tuple
 
-# Possible layers
-# Probably bottleneck on encoder
-# model.1.submodule.1.submodule.1.submodule.0.conv.unit3.conv
-# model.1.submodule.1.submodule.1.submodule.0.conv.unit
-# Probably bottleneck on decoder
-# model.1.submodule.1.submodule.2.0.conv
-# model.1.submodule.1.submodule.2.0
-
 class PCA_Adapter(nn.Module):
     def __init__(self, swivel, n_dims, batch_size, pre_fit=False,
                  train_gaussian=False, compute_dist=False,
@@ -103,8 +95,8 @@ class PCA_Adapter(nn.Module):
         x = x.view(x.size(0), -1)
         x_np = x.detach().cpu().numpy()
         if self.pre_fit is False:
-            if self.swivel == 'model.1.submodule.1.submodule.1.submodule.0.conv' and self.n_dims in [2,4]:
-                np.save(f'{self.act_path}/batch_{self.batch_counter}_{self.n_dims}.npy', x_np)
+            if self.swivel == 'model.1.submodule.1.submodule.1.submodule.0.conv' and self.n_dims == 2:
+                np.save(f'{self.act_path}/batch_{self.batch_counter}.npy', x_np)
                 self.batch_counter += 1
             self.pca.partial_fit(x_np)
         elif self.pre_fit is True:

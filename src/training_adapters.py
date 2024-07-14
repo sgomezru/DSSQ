@@ -49,10 +49,6 @@ if args[0] == 'monai':
     cfg.unet[DATA_KEY].num_res_units = int(args[3])
 
 layer_names = [f'model.{"1.submodule." * i}0.conv' for i in range(cfg.unet[DATA_KEY].depth)]
-# layer_names = ['model.0.conv',
-#                'model.1.submodule.0.conv',
-#                'model.1.submodule.1.submodule.0.conv',
-#                'model.1.submodule.1.submodule.1.submodule.0.conv']
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Loads the Siemens training dataset but in the required format for evaluation (No augmentations & numpy)
@@ -66,7 +62,6 @@ for mode in possible_modes:
     print(f'Running on mode: {mode}')
     for n_dims in N_DIMS[::-1]:
         # Batch size hard coded based on dataset length and GPU capacity
-        # cfg.unet[DATA_KEY].training.batch_size = 58 if (n_dims <= 58 or mode == 'get_activations') else n_dims
         pre_fit, train_gaussian = None, None
         if mode == 'train_adapters':
             pre_fit, train_gaussian, name = False, False, ''
@@ -79,7 +74,6 @@ for mode in possible_modes:
         adapters = nn.ModuleList(adapters)
         unet, state_dict = get_unet(cfg, update_cfg_with_swivels=False, return_state_dict=True)
         unet_adapted = PCAModuleWrapper(model=unet, adapters=adapters)
-        # unet_adapted.hook_adapters()
         unet_adapted.to(device);
         unet_adapted.eval();
 
