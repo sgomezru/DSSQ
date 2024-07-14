@@ -50,9 +50,9 @@ docker run \
 	-it \
 	--net=host \
 	--runtime=nvidia \
-    --gpus all \
-    --cpus=14 \
-    --privileged \
+  --gpus all \
+  --cpus=14 \
+  --privileged \
 	--ipc=host \
 	--mount type=bind,source="/home/gomez/out",target=/workspace/out \
 	--mount type=bind,source="/home/gomez/Data/",target=/data/Data \
