@@ -1,8 +1,9 @@
 import random
 import numpy as np
 import torch
-from sklearn.metrics import auc
 import wandb
+from sklearn.metrics import auc
+from torch import Tensor
 
 ### Evaluation
 class Metrics(object):

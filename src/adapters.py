@@ -31,7 +31,9 @@ class PCA_Adapter(nn.Module):
         self.compute_dist = compute_dist
         self.debug = debug
         self.project = name
+        self.batch_counter = 0
         self.pca_path = f'/workspace/out/pca/{name}'
+        self.act_path = f'/workspace/out/big_acts'
         self._init()
 
     def _init(self):
@@ -101,6 +103,9 @@ class PCA_Adapter(nn.Module):
         x = x.view(x.size(0), -1)
         x_np = x.detach().cpu().numpy()
         if self.pre_fit is False:
+            if self.swivel == 'model.1.submodule.1.submodule.1.submodule.0.conv' and self.n_dims in [2,4]:
+                np.save(f'{self.act_path}/batch_{self.batch_counter}_{self.n_dims}.npy', x_np)
+                self.batch_counter += 1
             self.pca.partial_fit(x_np)
         elif self.pre_fit is True:
             if self.reduce_dims is True: x_np = self.dim_reduce(x_np)
@@ -115,10 +120,11 @@ class PCAModuleWrapper(nn.Module):
         super().__init__()
         self.model = deepcopy(model) if copy else model
         self.adapters = adapters
-        self.adapter_handles = {}
+        self.hook_adapters()
         self.model.eval()
 
     def hook_adapters(self):
+        self.adapter_handles = {}
         for adapter in self.adapters:
             swivel = adapter.swivel
             layer  = self.model.get_submodule(swivel)

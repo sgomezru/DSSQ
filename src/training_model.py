@@ -3,8 +3,9 @@ import sys
 from omegaconf import OmegaConf
 import wandb
 
+REPO_PATH = '/workspace/repositories/DSSQ/src'
 os.environ['CUDA_VISIBLE_DEVICES'] = '3'
-sys.path.append('../')
+sys.path.append(REPO_PATH)
 
 from models import get_unet
 from data_utils import get_pmri_data_loaders
@@ -18,7 +19,7 @@ SUBSET = False # Whether the validation is a subset or the whole set
 VALIDATION = True # If false makes validation set be the training one
 EXTRA_DESCRIPTION = '_base'
 LOAD_ONLY_PRESENT = True
-cfg = OmegaConf.load('../configs/conf.yaml')
+cfg = OmegaConf.load(f'{REPO_PATH}/configs/conf.yaml')
 OmegaConf.update(cfg, 'run.iteration', ITERATION)
 OmegaConf.update(cfg, 'run.data_key', DATA_KEY)
 

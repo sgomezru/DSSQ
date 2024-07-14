@@ -4,8 +4,9 @@ import pickle
 import torch
 import torch.nn as nn
 
+REPO_PATH = '/workspace/repositories/DSSQ/src'
 os.environ['CUDA_VISIBLE_DEVICES'] = '3'
-sys.path.append('../')
+sys.path.append(REPO_PATH)
 
 from omegaconf import OmegaConf
 from tqdm.auto import tqdm
@@ -23,9 +24,9 @@ LOAD_ONLY_PRESENT = True
 SUBSET = 'training' # Whether the validation is a subset or the whole set, normally bool, but for eval must be string 'training'
 VALIDATION = True # If false makes validation set be the training one
 EXTRA_DESCRIPTION = '_base'
-N_DIMS = [2, 4, 8, 16, 32, 64]
+N_DIMS = [2, 4, 8, 16, 32]
 
-cfg = OmegaConf.load('../configs/conf.yaml')
+cfg = OmegaConf.load(f'{REPO_PATH}/configs/conf.yaml')
 OmegaConf.update(cfg, 'run.iteration', ITERATION)
 OmegaConf.update(cfg, 'run.data_key', DATA_KEY)
 
@@ -41,15 +42,17 @@ cfg.unet[DATA_KEY].training.augment = AUGMENT
 cfg.unet[DATA_KEY].training.validation = VALIDATION
 cfg.unet[DATA_KEY].training.subset = SUBSET
 cfg.unet[DATA_KEY].training.load_only_present = LOAD_ONLY_PRESENT
+cfg.unet[DATA_KEY].training.batch_size = 58
 
 if args[0] == 'monai':
     cfg.unet[DATA_KEY].depth = int(args[2])
     cfg.unet[DATA_KEY].num_res_units = int(args[3])
 
-layer_names = ['model.0.conv',
-               'model.1.submodule.0.conv',
-               'model.1.submodule.1.submodule.0.conv',
-               'model.1.submodule.1.submodule.1.submodule.0.conv']
+layer_names = [f'model.{"1.submodule." * i}0.conv' for i in range(cfg.unet[DATA_KEY].depth)]
+# layer_names = ['model.0.conv',
+#                'model.1.submodule.0.conv',
+#                'model.1.submodule.1.submodule.0.conv',
+#                'model.1.submodule.1.submodule.1.submodule.0.conv']
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Loads the Siemens training dataset but in the required format for evaluation (No augmentations & numpy)
@@ -63,7 +66,7 @@ for mode in possible_modes:
     print(f'Running on mode: {mode}')
     for n_dims in N_DIMS[::-1]:
         # Batch size hard coded based on dataset length and GPU capacity
-        cfg.unet[DATA_KEY].training.batch_size = 58 if (n_dims <= 58 or mode == 'get_activations') else n_dims
+        # cfg.unet[DATA_KEY].training.batch_size = 58 if (n_dims <= 58 or mode == 'get_activations') else n_dims
         pre_fit, train_gaussian = None, None
         if mode == 'train_adapters':
             pre_fit, train_gaussian, name = False, False, ''
@@ -76,9 +79,9 @@ for mode in possible_modes:
         adapters = nn.ModuleList(adapters)
         unet, state_dict = get_unet(cfg, update_cfg_with_swivels=False, return_state_dict=True)
         unet_adapted = PCAModuleWrapper(model=unet, adapters=adapters)
-        unet_adapted.hook_adapters()
+        # unet_adapted.hook_adapters()
         unet_adapted.to(device);
-        unet_adapted.eval()
+        unet_adapted.eval();
 
         dataloader = DataLoader(dataset, batch_size=cfg.unet[DATA_KEY].training.batch_size,
                                 shuffle=False, drop_last=False)
