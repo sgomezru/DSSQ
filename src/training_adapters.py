@@ -1,6 +1,5 @@
 import os
 import sys
-import pickle
 import torch
 import torch.nn as nn
 
@@ -12,7 +11,7 @@ from omegaconf import OmegaConf
 from tqdm.auto import tqdm
 from models import get_unet
 from data_utils import get_eval_data
-from adapters import PCA_Adapter, PCAModuleWrapper
+from adapters import DimReductAdapter, DimReductModuleWrapper
 from torch.utils.data import DataLoader
 
 ### Load basic config
@@ -42,7 +41,7 @@ cfg.unet[DATA_KEY].training.augment = AUGMENT
 cfg.unet[DATA_KEY].training.validation = VALIDATION
 cfg.unet[DATA_KEY].training.subset = SUBSET
 cfg.unet[DATA_KEY].training.load_only_present = LOAD_ONLY_PRESENT
-cfg.unet[DATA_KEY].training.batch_size = 58
+cfg.unet[DATA_KEY].training.batch_size = 58 # Batch size hard coded based on dataset length and GPU capacity
 
 if args[0] == 'monai':
     cfg.unet[DATA_KEY].depth = int(args[2])
@@ -54,51 +53,39 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Loads the Siemens training dataset but in the required format for evaluation (No augmentations & numpy)
 data = get_eval_data(train_set=False, val_set=False, eval_set=True, cfg=cfg)
 dataset = data['eval']
+dataloader = DataLoader(dataset, batch_size=cfg.unet[DATA_KEY].training.batch_size, shuffle=False, drop_last=False)
 print(f'Length of dataset: {len(dataset)}')
 
-possible_modes = ['train_adapters', 'get_activations']
+dim_red_modes = ['IPCA', 'PCA']
 
-for mode in possible_modes:
-    print(f'Running on mode: {mode}')
+for dim_red_mode in dim_red_modes:
     for n_dims in N_DIMS[::-1]:
-        # Batch size hard coded based on dataset length and GPU capacity
-        pre_fit, train_gaussian = None, None
-        if mode == 'train_adapters':
-            pre_fit, train_gaussian, name = False, False, ''
-        elif mode == 'get_activations':
-            pre_fit, train_gaussian, name = True, True, cfg.wandb.project
+        if dim_red_mode == 'PCA' and n_dims not in [2,4]:
+            continue
 
-        adapters = [PCA_Adapter(swivel, n_dims, cfg.unet[DATA_KEY].training.batch_size,
-                                pre_fit, train_gaussian, name=name) for swivel in layer_names]
+        adapters = [DimReductAdapter(swivel, n_dims, cfg.unet[DATA_KEY].training.batch_size,
+                                     mode=dim_red_mode, pre_fit=False, fit_gaussian=False,
+                                     project=cfg.wandb.project) for swivel in layer_names]
 
         adapters = nn.ModuleList(adapters)
         unet, state_dict = get_unet(cfg, update_cfg_with_swivels=False, return_state_dict=True)
-        unet_adapted = PCAModuleWrapper(model=unet, adapters=adapters)
+        unet_adapted = DimReductModuleWrapper(model=unet, adapters=adapters)
         unet_adapted.to(device);
         unet_adapted.eval();
 
-        dataloader = DataLoader(dataset, batch_size=cfg.unet[DATA_KEY].training.batch_size,
-                                shuffle=False, drop_last=False)
-
-        if mode == 'train_adapters':
-            print(f'Training for PCA with {n_dims} dims')
-            for i, batch in enumerate(tqdm(dataloader)):
-                input_ = batch['input'].to(device)
-                if input_.size(0) < n_dims:
-                    print(f'Skipped because batch size smaller than n_components')
-                    continue
-                unet_adapted(input_)
-
-            for adapter in unet_adapted.adapters:
-                name = adapter.swivel.replace('.', '_')
-                with open(f'/workspace/out/pca/{cfg.wandb.project}_{name}_{n_dims}dim.pkl',  'wb') as f:
-                    pickle.dump(adapter.pca, f)
-
-        elif mode == 'get_activations':
-            print(f'Getting activations for adapter with {n_dims}')
-            for i, batch in enumerate(tqdm(dataloader)):
-                input_ = batch['input'].to(device)
-                unet_adapted(input_)
-
-            for adapter in unet_adapted.adapters:
-                adapter._save_activations_np()
+        print(f'Training {dim_red_mode} module of {n_dims} dims')
+        for i, batch in enumerate(tqdm(dataloader)):
+            input_ = batch['input'].to(device)
+            if input_.size(0) < n_dims and dim_red_mode == 'IPCA':
+                print(f'Skipped because batch size smaller than n_components')
+                continue
+            unet_adapted(input_)
+        if dim_red_mode == 'PCA': unet_adapted.fit_adapters_modules()
+        unet_adapted.save_adapters_modules()
+        unet_adapted.set_pre_fit()
+        unet_adapted.set_fit_gaussian()
+        print(f'Fitting gaussian for {dim_red_mode} module of {n_dims} dims')
+        for i, batch in enumerate(tqdm(dataloader)):
+            input_ = batch['input'].to(device)
+            unet_adapted(input_)
+        unet_adapted.fit_adapters_gaussians()

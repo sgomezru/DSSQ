@@ -4,60 +4,52 @@ import numpy as np
 import pickle
 from torch import Tensor
 from sklearn.decomposition import IncrementalPCA, PCA
+from sklearn.manifold import TSNE
 from copy import deepcopy
 from typing import Tuple
 
-class PCA_Adapter(nn.Module):
-    def __init__(self, swivel, n_dims, batch_size, pre_fit=False,
-                 train_gaussian=False, compute_dist=False,
-                 reduce_dims=True, name='', device='cuda:0',
-                 debug=False):
+class DimReductAdapter(nn.Module):
+    def __init__(self, swivel, n_dims, batch_size, mode='IPCA',
+                 pre_fit=False, fit_gaussian=False, project='',
+                 device='cuda:0', debug=False):
         super().__init__()
         self.swivel = swivel
         self.n_dims = n_dims
         self.bs = batch_size
+        self.mode = mode.upper()
         self.device = device
         self.pre_fit = pre_fit
-        self.reduce_dims = reduce_dims
-        self.train_gaussian = train_gaussian
-        self.compute_dist = compute_dist
+        self.fit_gaussian = fit_gaussian
+        self.project = project
         self.debug = debug
-        self.project = name
-        self.batch_counter = 0
-        self.pca_path = f'/workspace/out/pca/{name}'
-        self.act_path = f'/workspace/out/big_acts'
+        self.module_path = f'/workspace/out/dim_modules/'
+        self.gaussian_path = f'/workspace/out/gaussians/'
         self._init()
 
     def _init(self):
 
         self.mu = None
         self.inv_cov = None
-        self.activations = []
+        self.activations = None
+        self.reduced_acts = []
         self.distances = []
+        self.module_path += f'{self.project}_{self.mode}_{self.swivel.replace(".", "_")}_{self.n_dims}dim.pkl'
+        self.gaussian_path += f'{self.project}_{self.mode}_gaussian_params_{self.swivel.replace(".", "_")}_{self.n_dims}dim.pt'
 
         if self.pre_fit is False:
-            self.pca = IncrementalPCA(n_components=self.n_dims, batch_size=self.bs)
-            if self.debug: print('Instantiated new IPCA')
+            if self.mode == 'IPCA': self.dim_module = IncrementalPCA(n_components=self.n_dims, batch_size=self.bs)
+            elif self.mode == 'PCA': self.dim_module = PCA(n_components=self.n_dims)
+            # elif self.mode == 'TSNE': self.dim_module = TSNE(n_components=self.n_dims)
+            if self.debug: print(f'Instantiated new {self.mode} module')
         elif self.pre_fit is True:
-            self.pca_path += f'_{self.swivel.replace(".", "_")}'
-            self.pca_path += f'_{self.n_dims}dim.pkl'
             try:
-                with open(self.pca_path, 'rb') as f:
-                    self.pca = pickle.load(f)
-                if self.debug: print(f'Loaded IPCA from path{self.pca_path}')
+                with open(self.module_path, 'rb') as f:
+                    self.dim_module = pickle.load(f)
+                if self.debug: print(f'Loaded {self.mode} from path {self.module_path}')
             except Exception as e:
-                print(f'Unable to load IPCA, error: {e}')
-            if self.train_gaussian is False:
-                self._load_activations()
-
-    def _load_activations(self):
-        try:
-            path = f'/workspace/out/activations/{self.project}_{self.swivel.replace(".", "_")}_activations_{self.n_dims}dims.npy'
-            self.activations = np.load(path)
-            if self.debug: print(f'Loaded activations from path {path}')
-            self._set_gaussian()
-        except Exception as e:
-            print(f'No previously saved activations found {e}')
+                print(f'Unable to load {self.mode} module, error: {e}')
+            if self.fit_gaussian is False:
+                self._load_gaussian()
 
     @torch.no_grad()
     def _mahalanobis_dist(self, x):
@@ -69,53 +61,66 @@ class PCA_Adapter(nn.Module):
         x_centered = x - self.mu
         mahal_dist = (x_centered @ self.inv_cov * x_centered).sum(dim=1).sqrt()
         self.distances.append(mahal_dist.detach().cpu())
+    
+    def _fit_dim_red_module(self):
+        assert isinstance(self.activations, np.ndarray), 'Activations required to fit dim reduction model'
+        if self.mode in ['PCA']:
+            self.dim_module.fit(self.activations)
 
-    def _clean_activations(self):
-        self.activations = []
-        if self.debug: print('Emptied collected activations of adapter')
+    def _save_dim_red_module(self):
+        try:
+            with open(self.module_path, 'wb') as f:
+                pickle.dump(self.dim_module, f)
+        except Exception as e:
+            print(f'Failed saving {self.mode} module, error {e}')
 
-    def _clean_distances(self):
-        self.distances = []
-        if self.debug: print('Emptied collected mahalanobis distances of adapter')
+    def _save_gaussian(self):
+        assert self.mu is not None and self.inv_cov is not None, 'Mean and inverse covariance matrix required'
+        gaussian_params = {'mu': self.mu, 'inv_cov': self.inv_cov}
+        torch.save(gaussian_params, self.gaussian_path) 
+        if self.debug: print(f'Mean and inverse covariance matrix saved at: {self.gaussian_path}')
 
-    def _set_gaussian(self):
-        if isinstance(self.activations, list): self.activations = np.vstack(self.activations)
-        self.mu = torch.tensor(np.mean(self.activations, axis=0)).unsqueeze(0).to(self.device)
-        self.inv_cov = torch.tensor(np.linalg.inv(np.cov(self.activations, rowvar=False))).to(self.device)
+    def _load_gaussian(self):
+        try:
+            gaussian_params = torch.load(self.gaussian_path)
+            self.mu = gaussian_params['mu'].to(self.device)
+            self.inv_cov = gaussian_params['inv_cov'].to(self.device)
+            if self.debug: print(f'Mean and inverse covariance matrix loaded')
+        except Exception as e:
+            print(f'Failed loading gaussian params, error: {e}')
+
+    def _fit_gaussian(self):
+        if isinstance(self.reduced_acts, list): self.reduced_acts = np.vstack(self.reduced_acts)
+        self.mu = torch.tensor(np.mean(self.reduced_acts, axis=0)).unsqueeze(0).to(self.device)
+        self.inv_cov = torch.tensor(np.linalg.inv(np.cov(self.reduced_acts, rowvar=False))).to(self.device)
         if self.debug: print('Mean and inverse covariance matrix computed and set')
-        self._clean_activations()
-
-    def _save_activations_np(self):
-        print('Saving activations...')
-        save_path = f'/workspace/out/activations/{self.project}_{self.swivel.replace(".", "_")}_activations_{self.n_dims}dims.npy'
-        np.save(save_path, np.vstack(self.activations))
+        self._save_gaussian()
 
     def forward(self, x):
         # X must be of shape (n_samples, n_features), thus flattened, and comes as a torch tensor
         x = x.view(x.size(0), -1)
         x_np = x.detach().cpu().numpy()
         if self.pre_fit is False:
-            if self.swivel == 'model.1.submodule.1.submodule.1.submodule.0.conv' and self.n_dims == 2:
-                np.save(f'{self.act_path}/batch_{self.batch_counter}.npy', x_np)
-                self.batch_counter += 1
-            self.pca.partial_fit(x_np)
+            if self.mode == 'IPCA': self.dim_module.partial_fit(x_np)
+            elif self.mode in ['PCA']: self.activations = x_np if self.activations is None else np.vstack([self.activations, x_np])
         elif self.pre_fit is True:
-            if self.reduce_dims is True: x_np = self.dim_reduce(x_np)
-            if self.train_gaussian is True: self.activations.append(x_np)
-            if self.compute_dist is True: self._mahalanobis_dist(x_np)
+            x_np = self.dim_reduce(x_np)
+            if self.fit_gaussian is True: self.reduced_acts.append(x_np)
+            else: self._mahalanobis_dist(x_np)
 
     def dim_reduce(self, x):
-        return self.pca.transform(x)
+        # TSNE doesn't have .transform, instead fit_transform
+        return self.dim_module.transform(x)
 
-class PCAModuleWrapper(nn.Module):
+class DimReductModuleWrapper(nn.Module):
     def __init__(self, model, adapters, copy=True):
         super().__init__()
         self.model = deepcopy(model) if copy else model
         self.adapters = adapters
-        self.hook_adapters()
+        self._hook_adapters()
         self.model.eval()
 
-    def hook_adapters(self):
+    def _hook_adapters(self):
         self.adapter_handles = {}
         for adapter in self.adapters:
             swivel = adapter.swivel
@@ -128,6 +133,26 @@ class PCAModuleWrapper(nn.Module):
             adapter(x[0])
             # return adapter(x)
         return hook_fn
+
+    def set_pre_fit(self):
+        for adapter in self.adapters:
+            adapter.pre_fit = True
+        
+    def set_fit_gaussian(self):
+        for adapter in self.adapters:
+            adapter.fit_gaussian = True
+
+    def save_adapters_modules(self):
+        for adapter in self.adapters:
+            adapter._save_dim_red_module()
+
+    def fit_adapters_modules(self):
+        for adapter in self.adapters:
+            adapter._fit_dim_red_module()
+
+    def fit_adapters_gaussians(self):
+        for adapter in self.adapters:
+            adapter._fit_gaussian()
 
     def forward(self, x):
         return self.model(x)
