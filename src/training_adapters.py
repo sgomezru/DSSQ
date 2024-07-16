@@ -76,14 +76,12 @@ for dim_red_mode in dim_red_modes:
         print(f'Training {dim_red_mode} module of {n_dims} dims')
         for i, batch in enumerate(tqdm(dataloader)):
             input_ = batch['input'].to(device)
-            if input_.size(0) < n_dims and dim_red_mode == 'IPCA':
-                print(f'Skipped because batch size smaller than n_components')
-                continue
+            if input_.size(0) < n_dims and dim_red_mode == 'IPCA': continue
             unet_adapted(input_)
         if dim_red_mode == 'PCA': unet_adapted.fit_adapters_modules()
         unet_adapted.save_adapters_modules()
-        unet_adapted.set_pre_fit()
-        unet_adapted.set_fit_gaussian()
+        unet_adapted.set_pre_fit_flag(True)
+        unet_adapted.set_fit_gaussian_flag(True)
         print(f'Fitting gaussian for {dim_red_mode} module of {n_dims} dims')
         for i, batch in enumerate(tqdm(dataloader)):
             input_ = batch['input'].to(device)
