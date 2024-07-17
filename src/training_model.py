@@ -48,7 +48,7 @@ wandb.init(
     }
 )
 
-unet = get_unet(cfg, update_cfg_with_swivels=False, return_state_dict=False)
+unet = get_unet(cfg, return_state_dict=False)
 train_loader, val_loader = get_pmri_data_loaders(cfg=cfg)
 pmri_trainer = get_unet_trainer(cfg=cfg, train_loader=train_loader, val_loader=val_loader, model=unet)
 

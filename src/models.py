@@ -22,7 +22,6 @@ __all__ = ["UNet", "Unet"]
 
 def get_unet(
     cfg: OmegaConf,
-    update_cfg_with_swivels: bool = False,
     return_state_dict=False,
 ) -> Union[nn.Module, Tuple[nn.Module, Dict]]:
 
@@ -34,20 +33,9 @@ def get_unet(
 
     if unet_cfg.arch == 'monai':
         unet = get_monai_unet_arch(cfg)
-        if update_cfg_with_swivels:
-            swivels = {
-                f'model.1.{"submodule.1." * i}swivel': {
-                    'channel': unet_cfg.n_filters_init * (2 ** i)
-                } for i in range(unet_cfg.depth)
-            }
 
     elif unet_cfg.arch == 'swinunetr':
          unet = get_monai_swinunetr_arch(cfg)
-
-    if update_cfg_with_swivels:
-        OmegaConf.set_struct(cfg, False)
-        cfg.dae.swivels = swivels
-        OmegaConf.set_struct(cfg, True)
 
     if return_state_dict:
         weight_dir = cfg.fs.weight_dir[0] if isinstance(cfg.fs.weight_dir, tuple) else cfg.fs.weight_dir

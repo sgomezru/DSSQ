@@ -68,7 +68,7 @@ for dim_red_mode in dim_red_modes:
                                      project=cfg.wandb.project) for swivel in layer_names]
 
         adapters = nn.ModuleList(adapters)
-        unet, state_dict = get_unet(cfg, update_cfg_with_swivels=False, return_state_dict=True)
+        unet, state_dict = get_unet(cfg, return_state_dict=True)
         unet_adapted = DimReductModuleWrapper(model=unet, adapters=adapters)
         unet_adapted.to(device);
         unet_adapted.eval();
