@@ -4,7 +4,7 @@ from omegaconf import OmegaConf
 import wandb
 
 REPO_PATH = '/workspace/repositories/DSSQ/src'
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 sys.path.append(REPO_PATH)
 
 from models import get_unet
@@ -23,7 +23,8 @@ cfg = OmegaConf.load(f'{REPO_PATH}/configs/conf.yaml')
 OmegaConf.update(cfg, 'run.iteration', ITERATION)
 OmegaConf.update(cfg, 'run.data_key', DATA_KEY)
 
-unet_name = 'monai-64-4-4'
+# unet_name = 'monai-64-4-4'
+unet_name = 'swinunetr'
 cfg.wandb.project = f'{DATA_KEY}_{unet_name}_{ITERATION}{EXTRA_DESCRIPTION}'
 args = unet_name.split('-')
 cfg.unet[DATA_KEY].pre = unet_name
