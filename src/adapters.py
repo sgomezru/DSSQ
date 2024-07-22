@@ -52,7 +52,6 @@ class DimReductAdapter(nn.Module):
         self.activations = None
         self.reduced_acts = []
         self.distances = []
-        self.ood_results = []
 
     @torch.no_grad()
     def _mahalanobis_dist(self, x):
@@ -114,7 +113,6 @@ class DimReductAdapter(nn.Module):
         return arr
 
     def dim_reduce(self, x):
-        # TSNE doesn't have .transform, instead fit_transform
         return self.dim_module.transform(x)
 
     def forward(self, x):
@@ -178,6 +176,9 @@ class DimReductModuleWrapper(nn.Module):
 
     def set_thresholds(self, thresholds_dict):
         for adapter in self.adapters: adapter._set_threshold(thresholds_dict[adapter.swivel])
+
+    def empty_data(self):
+        for adapter in self.adapters: adapter._clean_storage()
 
     def compute_thresholds(self, percentile_cut):
         thresholds = {}
