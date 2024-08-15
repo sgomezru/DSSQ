@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 REPO_PATH = "/workspace/repositories/DSSQ/src"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 sys.path.append(REPO_PATH)
 
 from omegaconf import OmegaConf
@@ -74,6 +74,30 @@ for iteration in range(5):
                 "swinViT.layers4.0.downsample",
                 "swinViT.layers4.0.blocks.1",
             ]
+        # Train scalers for each layer for IPCA and PCA modes
+        adapters = [
+            DimReductAdapter(
+                swivel=swivel,
+                n_dims=2,
+                batch_size=cfg.unet[DATA_KEY].training.batch_size,
+                mode="PCA",
+                pre_fit=False,
+                fit_gaussian=False,
+                fit_scaler=True,
+                project=cfg.wandb.project,
+            )
+            for swivel in layer_names
+        ]
+        adapters = nn.ModuleList(adapters)
+        unet, state_dict = get_unet(cfg, return_state_dict=True)
+        unet_adapted = DimReductModuleWrapper(model=unet, adapters=adapters)
+        unet_adapted.to(device)
+        unet_adapted.eval()
+        print(f"Training scaler for {unet_name} iteration {iteration}")
+        for i, batch in enumerate(tqdm(dataloader)):
+            input_ = batch["input"].to(device)
+            unet_adapted(input_)
+        unet_adapted.save_scalers_modules()
 
         for dim_red_mode in DIM_RED_MODES:
             for n_dims in N_DIMS[::-1]:
@@ -88,6 +112,7 @@ for iteration in range(5):
                         mode=dim_red_mode,
                         pre_fit=False,
                         fit_gaussian=False,
+                        fit_scaler=False,
                         project=cfg.wandb.project,
                     )
                     for swivel in layer_names
@@ -125,6 +150,7 @@ for iteration in range(5):
                 mode="AVG_POOL",
                 pre_fit=False,
                 fit_gaussian=True,
+                fit_scaler=False,
                 project=cfg.wandb.project,
             )
             for swivel in layer_names

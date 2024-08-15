@@ -4,6 +4,7 @@ import numpy as np
 import pickle
 from torch import Tensor
 from sklearn.decomposition import IncrementalPCA, PCA
+from sklearn.preprocessing import StandardScaler
 from copy import deepcopy
 from typing import Tuple
 
@@ -17,6 +18,7 @@ class DimReductAdapter(nn.Module):
         mode="IPCA",
         pre_fit=False,
         fit_gaussian=False,
+        fit_scaler=False,
         project="",
         device="cuda:0",
         debug=False,
@@ -29,6 +31,7 @@ class DimReductAdapter(nn.Module):
         self.device = device
         self.pre_fit = pre_fit
         self.fit_gaussian = fit_gaussian
+        self.fit_scaler = fit_scaler
         self.project = project
         self.debug = debug
         self.module_path = "/workspace/out/dim_modules/"
@@ -39,11 +42,21 @@ class DimReductAdapter(nn.Module):
         self.mu = None
         self.inv_cov = None
         self._clean_storage()
-        self.module_path += f'{self.project}_{self.mode}_{self.swivel.replace(".", "_")}_{self.n_dims}dim.pkl'
-        self.gaussian_path += f'{self.project}_{self.mode}_gaussian_params_{self.swivel.replace(".", "_")}_{self.n_dims}dim.pt'
+        self.scaler_path = f'{self.module_path}{self.project}_{self.swivel.replace(".", "_")}_scaler.pkl'
+        self.module_path += f'{self.project}_{self.mode}_{self.swivel.replace(".", "_")}_{self.n_dims}dim_scaled.pkl'
+        self.gaussian_path += f'{self.project}_{self.mode}_gaussian_params_{self.swivel.replace(".", "_")}_{self.n_dims}dim_scaled.pt'
+        if self.fit_scaler is False and "PCA" in self.mode:
+            try:
+                with open(self.scaler_path, "rb") as f:
+                    self.dim_scaler = pickle.load(f)
+            except Exception as e:
+                print(f"Unable to load scaler, error: {e}")
+        elif self.fit_scaler is True and "PCA" in self.mode:
+            self.dim_scaler = StandardScaler()
         if self.mode == "AVG_POOL":
             self.dim_module = nn.AvgPool2d(kernel_size=2, stride=2)
-            print(f"Instantiated new {self.mode} module")
+            if self.debug:
+                print(f"Instantiated new {self.mode} module")
         if self.pre_fit is False:
             if self.mode == "IPCA":
                 self.dim_module = IncrementalPCA(
@@ -79,8 +92,13 @@ class DimReductAdapter(nn.Module):
         # mu: (1, n_dims)
         # inv_cov: (n_dims, n_dims)
         x = torch.tensor(x, dtype=torch.float64).to(self.device)
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            print(f"Nan or Inf values found in x input {self.swivel}")
         x_centered = x - self.mu
-        mahal_dist = (x_centered @ self.inv_cov * x_centered).sum(dim=1).sqrt()
+        mahal_dist = ((x_centered @ self.inv_cov) * x_centered).sum(dim=1).sqrt()
+        # mahal_dist = x_centered @ self.inv_cov
+        # mahal_dist = mahal_dist * x_centered
+        # mahal_dist = mahal_dist.sum(dim=1).sqrt()
         self.distances.append(mahal_dist.detach().cpu())
 
     def _fit_dim_red_module(self):
@@ -89,6 +107,13 @@ class DimReductAdapter(nn.Module):
         ), "Activations required to fit dim reduction model"
         if self.mode in ["PCA"]:
             self.dim_module.fit(self.activations)
+
+    def _save_dim_scaler(self):
+        try:
+            with open(self.scaler_path, "wb") as f:
+                pickle.dump(self.dim_scaler, f)
+        except Exception as e:
+            print(f"Failed saving scaler, error {e}")
 
     def _save_dim_red_module(self):
         try:
@@ -116,6 +141,18 @@ class DimReductAdapter(nn.Module):
         except Exception as e:
             print(f"Failed loading gaussian params, error: {e}")
 
+    def _check_positive_definite(self, mat):
+        try:
+            np.linalg.cholesky(mat)
+            return True
+        except np.linalg.LinAlgError:
+            return False
+
+    def _compute_inv_cholesky(self, cov):
+        L = np.linalg.cholesky(cov)
+        inv_cov = np.linalg.inv(L).T @ np.linalg.inv(L)
+        return inv_cov
+
     def _fit_gaussian(self):
         if isinstance(self.reduced_acts, list):
             self.reduced_acts = np.vstack(self.reduced_acts)
@@ -124,9 +161,21 @@ class DimReductAdapter(nn.Module):
             .unsqueeze(0)
             .to(self.device)
         )
-        self.inv_cov = torch.tensor(
-            np.linalg.inv(np.cov(self.reduced_acts, rowvar=False))
-        ).to(self.device)
+        cov = np.cov(self.reduced_acts, rowvar=False)
+        if self._check_positive_definite(cov) and self._check_positive_definite(
+            self._compute_inv_cholesky(cov)
+        ):
+            self.inv_cov = torch.tensor(self._compute_inv_cholesky(cov)).to(self.device)
+        else:
+            cov = cov + 1e-10 * np.eye(cov.shape[0])
+            if self._check_positive_definite(cov) and self._check_positive_definite(
+                self._compute_inv_cholesky(cov)
+            ):
+                self.inv_cov = torch.tensor(self._compute_inv_cholesky(cov)).to(
+                    self.device
+                )
+            else:
+                print(f"Failed to compute inverse covariance matrix for {self.swivel}")
         if self.debug:
             print("Mean and inverse covariance matrix computed and set")
         self._save_gaussian()
@@ -161,7 +210,10 @@ class DimReductAdapter(nn.Module):
         if "PCA" in self.mode:
             x = x.contiguous().view(x.size(0), -1)
             x_np = x.detach().cpu().numpy()
-            if self.pre_fit is False:
+            if self.fit_scaler is True:
+                self.dim_scaler.partial_fit(x_np)
+            elif self.pre_fit is False:
+                x_np = self.dim_scaler.transform(x_np)
                 if self.mode == "IPCA":
                     self.dim_module.partial_fit(x_np)
                 elif self.mode in ["PCA"]:
@@ -171,6 +223,7 @@ class DimReductAdapter(nn.Module):
                         else np.vstack([self.activations, x_np])
                     )
             elif self.pre_fit is True:
+                x_np = self.dim_scaler.transform(x_np)
                 x_np = self.dim_reduce(x_np)
                 if self.fit_gaussian is True:
                     self.reduced_acts.append(x_np)
@@ -179,7 +232,10 @@ class DimReductAdapter(nn.Module):
         elif self.mode == "AVG_POOL":
             x = self.dim_reduce(x)
             x_np = x.contiguous().view(x.size(0), -1).detach().cpu().numpy()
-            self.reduced_acts.append(x_np)
+            if self.fit_gaussian is True:
+                self.reduced_acts.append(x_np)
+            else:
+                self._mahalanobis_dist(x_np)
 
 
 class DimReductModuleWrapper(nn.Module):
@@ -223,6 +279,10 @@ class DimReductModuleWrapper(nn.Module):
     def save_adapters_modules(self):
         for adapter in self.adapters:
             adapter._save_dim_red_module()
+
+    def save_scalers_modules(self):
+        for adapter in self.adapters:
+            adapter._save_dim_scaler()
 
     def save_adapters_thresholds(self):
         for adapter in self.adapters:
