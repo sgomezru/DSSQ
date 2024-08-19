@@ -9,6 +9,9 @@ data:
     prostate:
         pmri:
             data_path: '/data/Data/PMRI/'
+    heart:
+        mnm:
+            data_path: '/data/Data/MNM/'
 unet:
     prostate:
         pre: 'pmri_unet'
@@ -23,7 +26,24 @@ unet:
             subset: False
             batch_size: 32
             num_batches_per_epoch: 250
-            num_val_batches_per_epoch: 25 
+            num_val_batches_per_epoch: 25
+            epochs: 200
+            patience: 8
+            lr: 0.001
+    heart:
+        pre: 'mnm_unet'
+        n_chans_in: 1
+        n_filters_init: 8
+        n_chans_out: 4
+        training:
+            vendor: 'siemens'
+            load_only_present: True
+            augment: True
+            validation: True
+            subset: False
+            batch_size: 32
+            num_batches_per_epoch: 250
+            num_val_batches_per_epoch: 25
             epochs: 200
             patience: 8
             lr: 0.001

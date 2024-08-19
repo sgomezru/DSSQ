@@ -1,11 +1,6 @@
 import math
 import numpy as np
-from typing import ( 
-    List, 
-    Tuple,
-    Optional,
-    Dict
-)
+from typing import List, Tuple, Optional, Dict
 import sys
 from time import sleep, time
 import threading
@@ -20,20 +15,25 @@ from torch import Tensor
 from torchvision.transforms import functional as F, InterpolationMode
 from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 from batchgenerators.transforms.spatial_transforms import (
-    SpatialTransform, 
-    MirrorTransform
+    SpatialTransform,
+    MirrorTransform,
 )
-from batchgenerators.transforms.resample_transforms import SimulateLowResolutionTransform
-from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform
+from batchgenerators.transforms.resample_transforms import (
+    SimulateLowResolutionTransform,
+)
+from batchgenerators.transforms.noise_transforms import (
+    GaussianNoiseTransform,
+    GaussianBlurTransform,
+)
 from batchgenerators.transforms.color_transforms import (
-    BrightnessMultiplicativeTransform, 
-    ContrastAugmentationTransform, 
-    GammaTransform
+    BrightnessMultiplicativeTransform,
+    ContrastAugmentationTransform,
+    GammaTransform,
 )
 from batchgenerators.transforms.utility_transforms import (
-    RemoveLabelTransform, 
-    RenameTransform, 
-    NumpyToTensor
+    RemoveLabelTransform,
+    RenameTransform,
+    NumpyToTensor,
 )
 from batchgenerators.transforms.crop_and_pad_transforms import CenterCropTransform
 from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
@@ -41,108 +41,106 @@ from batchgenerators.transforms.local_transforms import (
     BrightnessGradientAdditiveTransform,
     LocalGammaTransform,
     LocalSmoothingTransform,
-    LocalContrastTransform
+    LocalContrastTransform,
 )
-from batchgenerators.transforms.abstract_transforms import (
-    Compose,
-    AbstractTransform
-)
+from batchgenerators.transforms.abstract_transforms import Compose, AbstractTransform
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.dataloading.multi_threaded_augmenter import producer, results_loop
 
-from datasets import MultisiteMRIProstateDataset
+from datasets import MultisiteMRIProstateDataset, MnMDataset
 from torch.utils.data import Dataset
+
 
 class SingleImageMultiViewDataLoader(SlimDataLoaderBase):
     """Single image multi view dataloader.
-    
+
     Adapted from batchgenerator examples:
     https://github.com/MIC-DKFZ/batchgenerators/blob/master/batchgenerators/examples/example_ipynb.ipynb
     """
-    def __init__(
-        self, 
-        data: Dataset, 
-        batch_size: int, 
-        return_orig: str = True
-    ):
+
+    def __init__(self, data: Dataset, batch_size: int, return_orig: str = True):
         super(SingleImageMultiViewDataLoader, self).__init__(data, batch_size)
         self.return_orig = return_orig
-    
+
     def generate_train_batch(self):
         # select single slice from dataset
         data = self._data[random.randrange(len(self._data))]
         # split into input and target, cast to np.float for batchgenerators
-        img = data['input'].numpy().astype(np.float32)
-        tar = data['target'][0].numpy().astype(np.float32)
+        img = data["input"].numpy().astype(np.float32)
+        tar = data["target"][0].numpy().astype(np.float32)
         # copy along batch dimension
         img_batched = np.tile(img, (self.batch_size, 1, 1, 1))
         tar_batched = np.tile(tar, (self.batch_size, 1, 1, 1))
         # now construct the dictionary and return it. np.float32 cast because most networks take float
-        out = {'data': img_batched, 
-               'seg':  tar_batched}
-        
+        out = {"data": img_batched, "seg": tar_batched}
+
         # if the original data is also needed, activate this flag to store it where augmentations
         # cant find it.
         if self.return_orig:
-            out['data_orig']   = data['input'].unsqueeze(0)
-            out['target_orig'] = data['target'].unsqueeze(0)
-        
+            out["data_orig"] = data["input"].unsqueeze(0)
+            out["target_orig"] = data["target"].unsqueeze(0)
+
         return out
-    
+
+
 class MultiImageSingleViewDataLoader(SlimDataLoaderBase):
     """Multi image single view dataloader.
-    
+
     Adapted from batchgenerator examples:
     https://github.com/MIC-DKFZ/batchgenerators/blob/master/batchgenerators/examples/example_ipynb.ipynb
     """
+
     def __init__(
-        self, 
-        data: Dataset, 
-        batch_size: int, 
+        self,
+        data: Dataset,
+        batch_size: int,
         return_orig: str = True,
-        permute: bool = False
+        permute: bool = False,
     ):
         super(MultiImageSingleViewDataLoader, self).__init__(data, batch_size)
         # data is now stored in self._data.
         self.return_orig = return_orig
         self.permute = permute
-    
+
     def generate_train_batch(self):
         # get random subset from dataset of batch size length
         sample = torch.randint(0, len(self._data), size=(self.batch_size,))
-        data   = self._data[sample]
+        data = self._data[sample]
         # split into input and target
-        img    = data['input']
-        tar    = data['target']
+        img = data["input"]
+        tar = data["target"]
 
         if self.permute:
-            img = img.permute(3,0,1,2)
-            tar = tar.permute(3,0,1,2)
-        
-        #construct the dictionary and return it. np.float32 cast because most networks take float
-        out = {'data': img.numpy().astype(np.float32), 
-               'seg':  tar.numpy().astype(np.float32)}
-        
+            img = img.permute(3, 0, 1, 2)
+            tar = tar.permute(3, 0, 1, 2)
+
+        # construct the dictionary and return it. np.float32 cast because most networks take float
+        out = {
+            "data": img.numpy().astype(np.float32),
+            "seg": tar.numpy().astype(np.float32),
+        }
+
         # if the original data is also needed, activate this flag to store it where augmentations
         # cant find it.
         if self.return_orig:
-            out['data_orig']   = img
-            out['target_orig'] = tar
+            out["data_orig"] = img
+            out["target_orig"] = tar
 
         return out
+
 
 class Transforms(object):
     """
     A container for organizing and accessing different sets of image transformation operations.
 
-    This class defines four categories of transformations: 'io_transforms', 
-    'global_nonspatial_transforms', 'global_transforms', and 'local_transforms'. Each category 
+    This class defines four categories of transformations: 'io_transforms',
+    'global_nonspatial_transforms', 'global_transforms', and 'local_transforms'. Each category
     contains a list of specific transform objects designed for image preprocessing in machine learning tasks.
 
     The 'io_transforms' are basic input/output operations, like renaming and format conversion.
-    'global_nonspatial_transforms' apply transformations like noise addition or resolution simulation 
-    that do not depend alter spatial information. 'global_transforms' include spatial transformations 
-    like rotation and scaling. 'local_transforms' focus on localized changes to an image, such as adding 
+    'global_nonspatial_transforms' apply transformations like noise addition or resolution simulation
+    that do not depend alter spatial information. 'global_transforms' include spatial transformations
+    like rotation and scaling. 'local_transforms' focus on localized changes to an image, such as adding
     brightness gradients or local smoothing and are also non-spatial.
 
     Attributes:
@@ -155,207 +153,161 @@ class Transforms(object):
         >>> transforms = Transforms()
         >>> global_transforms = transforms.get_transforms('global_transforms')
     """
-    
+
     def __init__(
         self,
     ) -> None:
-        
         io_transforms = [
             RemoveLabelTransform(
-                output_key = 'seg', 
-                input_key = 'seg',
-                replace_with = 0,
-                remove_label = -1
+                output_key="seg", input_key="seg", replace_with=0, remove_label=-1
             ),
-            RenameTransform(
-                delete_old = True,
-                out_key = 'target',
-                in_key = 'seg'
-            ),
-            NumpyToTensor(
-                keys = ['data', 'target'], 
-                cast_to = 'float')    
+            RenameTransform(delete_old=True, out_key="target", in_key="seg"),
+            NumpyToTensor(keys=["data", "target"], cast_to="float"),
         ]
 
         eval_io_transforms = [
-            CenterCropTransform(
-                crop_size = 256,
-                data_key = 'input',
-                label_key = 'target'
-            ),
-            NumpyToTensor(
-                keys = ['input'],
-                cast_to = 'float'
-            ),
-            NumpyToTensor(
-                keys = ['target'],
-                cast_to = 'long'
-            ),
+            CenterCropTransform(crop_size=256, data_key="input", label_key="target"),
+            NumpyToTensor(keys=["input"], cast_to="float"),
+            NumpyToTensor(keys=["target"], cast_to="long"),
         ]
 
         valid_io_transforms = [
             RemoveLabelTransform(
-                output_key = 'seg',
-                input_key = 'seg',
-                replace_with = 0,
-                remove_label = -1
+                output_key="seg", input_key="seg", replace_with=0, remove_label=-1
             ),
-            RenameTransform(
-                delete_old = True,
-                out_key = 'target',
-                in_key = 'seg'
-            ),
-            CenterCropTransform(
-                crop_size = 256,
-                data_key = 'data',
-                label_key = 'target'
-            ),
-            NumpyToTensor(
-                keys = ['data', 'target'],
-                cast_to = 'float')
+            RenameTransform(delete_old=True, out_key="target", in_key="seg"),
+            CenterCropTransform(crop_size=256, data_key="data", label_key="target"),
+            NumpyToTensor(keys=["data", "target"], cast_to="float"),
         ]
 
         global_nonspatial_transforms = [
             SimulateLowResolutionTransform(
-                order_upsample = 3, 
-                order_downsample = 0, 
-                channels = None, 
-                per_channel = True, 
-                p_per_channel = 0.5, 
-                p_per_sample = 0.25, 
-                data_key = 'data',
-                zoom_range = (0.5, 1), 
-                ignore_axes = None
+                order_upsample=3,
+                order_downsample=0,
+                channels=None,
+                per_channel=True,
+                p_per_channel=0.5,
+                p_per_sample=0.25,
+                data_key="data",
+                zoom_range=(0.5, 1),
+                ignore_axes=None,
             ),
             GaussianNoiseTransform(
-                p_per_sample = 0.1, 
-                data_key = 'data', 
-                noise_variance = (0, 0.1), 
-                p_per_channel = 1, 
-                per_channel = False
+                p_per_sample=0.1,
+                data_key="data",
+                noise_variance=(0, 0.1),
+                p_per_channel=1,
+                per_channel=False,
             ),
-        ] 
-       
+        ]
+
         global_transforms = [
             SpatialTransform(
-                independent_scale_for_each_axis = False, 
-                p_rot_per_sample = 0.2, 
-                p_scale_per_sample = 0.2, 
-                p_el_per_sample = 0.2, 
-                data_key = 'data', 
-                label_key = 'seg', 
-                patch_size = np.array([256, 256]), 
-                patch_center_dist_from_border = None, 
-                do_elastic_deform = False, 
-                alpha = (0.0, 200.0), 
-                sigma = (9.0, 13.0), 
-                do_rotation = True, 
-                angle_x = (-3.141592653589793, 3.141592653589793), 
-                angle_y = (-0.0, 0.0), 
-                angle_z = (-0.0, 0.0), 
-                do_scale = True,
-                scale = (0.7, 1.4), 
-                border_mode_data = 'constant',
-                border_cval_data = 0, 
-                order_data = 3, 
-                border_mode_seg = 'constant',
-                border_cval_seg = -1, 
-                order_seg = 1,
-                random_crop = False,
-                p_rot_per_axis = 1, 
-                p_independent_scale_per_axis = 1
+                independent_scale_for_each_axis=False,
+                p_rot_per_sample=0.2,
+                p_scale_per_sample=0.2,
+                p_el_per_sample=0.2,
+                data_key="data",
+                label_key="seg",
+                patch_size=np.array([256, 256]),
+                patch_center_dist_from_border=None,
+                do_elastic_deform=False,
+                alpha=(0.0, 200.0),
+                sigma=(9.0, 13.0),
+                do_rotation=True,
+                angle_x=(-3.141592653589793, 3.141592653589793),
+                angle_y=(-0.0, 0.0),
+                angle_z=(-0.0, 0.0),
+                do_scale=True,
+                scale=(0.7, 1.4),
+                border_mode_data="constant",
+                border_cval_data=0,
+                order_data=3,
+                border_mode_seg="constant",
+                border_cval_seg=-1,
+                order_seg=1,
+                random_crop=False,
+                p_rot_per_axis=1,
+                p_independent_scale_per_axis=1,
             ),
             GaussianBlurTransform(
-                p_per_sample = 0.2, 
-                different_sigma_per_channel = True, 
-                p_per_channel = 0.5, 
-                data_key = 'data', 
-                blur_sigma = (0.5, 1.0), 
-                different_sigma_per_axis = False, 
-                p_isotropic = 0
+                p_per_sample=0.2,
+                different_sigma_per_channel=True,
+                p_per_channel=0.5,
+                data_key="data",
+                blur_sigma=(0.5, 1.0),
+                different_sigma_per_axis=False,
+                p_isotropic=0,
             ),
             BrightnessMultiplicativeTransform(
-                p_per_sample = 0.15, 
-                data_key = 'data', 
-                multiplier_range = (0.75, 1.25), 
-                per_channel = True
+                p_per_sample=0.15,
+                data_key="data",
+                multiplier_range=(0.75, 1.25),
+                per_channel=True,
             ),
             ContrastAugmentationTransform(
-                p_per_sample = 0.15, 
-                data_key = 'data', 
-                contrast_range = (0.75, 1.25), 
-                preserve_range = True, 
-                per_channel = True, 
-                p_per_channel = 1
+                p_per_sample=0.15,
+                data_key="data",
+                contrast_range=(0.75, 1.25),
+                preserve_range=True,
+                per_channel=True,
+                p_per_channel=1,
             ),
             GammaTransform(
-                p_per_sample = 0.1,
-                retain_stats = True, 
-                per_channel = True, 
-                data_key = 'data', 
-                gamma_range = (0.7, 1.5), 
-                invert_image = True
+                p_per_sample=0.1,
+                retain_stats=True,
+                per_channel=True,
+                data_key="data",
+                gamma_range=(0.7, 1.5),
+                invert_image=True,
             ),
             GammaTransform(
-                p_per_sample = 0.3,
-                retain_stats = True, 
-                per_channel = True, 
-                data_key = 'data', 
-                gamma_range = (0.7, 1.5), 
-                invert_image = False
+                p_per_sample=0.3,
+                retain_stats=True,
+                per_channel=True,
+                data_key="data",
+                gamma_range=(0.7, 1.5),
+                invert_image=False,
             ),
             MirrorTransform(
-                p_per_sample = 1, 
-                data_key = 'data', 
-                label_key = 'seg', 
-                axes = (0, 1)
+                p_per_sample=1, data_key="data", label_key="seg", axes=(0, 1)
             ),
-        ]       
-        
+        ]
+
         local_transforms = [
             BrightnessGradientAdditiveTransform(
-                scale=200, 
-                max_strength=4, 
-                p_per_sample=0.2, 
-                p_per_channel=1
+                scale=200, max_strength=4, p_per_sample=0.2, p_per_channel=1
             ),
             LocalGammaTransform(
-                scale=200, 
-                gamma=(2, 5), 
-                p_per_sample=0.2,
-                p_per_channel=1
+                scale=200, gamma=(2, 5), p_per_sample=0.2, p_per_channel=1
             ),
             LocalSmoothingTransform(
                 scale=200,
                 smoothing_strength=(0.5, 1),
                 p_per_sample=0.2,
-                p_per_channel=1
+                p_per_channel=1,
             ),
             LocalContrastTransform(
-                scale=200,
-                new_contrast=(1, 3),
-                p_per_sample=0.2,
-                p_per_channel=1
+                scale=200, new_contrast=(1, 3), p_per_sample=0.2, p_per_channel=1
             ),
         ]
 
         self.transforms = {
-            'io_transforms': io_transforms,
-            'valid_io_transforms': valid_io_transforms,
-            'eval_io_transforms': eval_io_transforms,
-            'global_nonspatial_transforms': global_nonspatial_transforms + io_transforms,
-            'global_transforms': global_transforms + io_transforms,
-            'local_transforms': global_nonspatial_transforms + local_transforms + io_transforms,
-            'local_val_transforms': local_transforms + io_transforms,
-            'all_transforms': local_transforms + global_transforms + io_transforms
+            "io_transforms": io_transforms,
+            "valid_io_transforms": valid_io_transforms,
+            "eval_io_transforms": eval_io_transforms,
+            "global_nonspatial_transforms": global_nonspatial_transforms
+            + io_transforms,
+            "global_transforms": global_transforms + io_transforms,
+            "local_transforms": global_nonspatial_transforms
+            + local_transforms
+            + io_transforms,
+            "local_val_transforms": local_transforms + io_transforms,
+            "all_transforms": local_transforms + global_transforms + io_transforms,
         }
 
-    def get_transforms(
-        self, 
-        arg: str
-    ) -> AbstractTransform:
+    def get_transforms(self, arg: str) -> AbstractTransform:
         return Compose(self.transforms[arg])
-
 
 
 def _apply_op(
@@ -450,6 +402,7 @@ def _apply_op(
     else:
         raise ValueError(f"The provided operator {op_name} is not recognized.")
     return img
+
 
 class RandAugmentWithLabels(torch.nn.Module):
     r"""RandAugment data augmentation method based on
@@ -577,69 +530,114 @@ class RandAugmentWithLabels(torch.nn.Module):
         )
         return s
 
+
 def get_eval_data(
     cfg: OmegaConf,
     train_set: bool = False,
     val_set: bool = False,
-    eval_set: bool = False
+    eval_set: bool = False,
 ):
-    if cfg.run.data_key == 'prostate':
+    if cfg.run.data_key == "prostate":
         data = get_pmri_data(
-            train_set=train_set,
-            val_set=val_set,
-            eval_set=eval_set,
-            cfg=cfg
+            train_set=train_set, val_set=val_set, eval_set=eval_set, cfg=cfg
         )
     return data
 
-def get_pmri_data(
-        train_set: bool,
-        val_set: bool,
-        eval_set: bool,
-        cfg: OmegaConf
-):
-    datapath = cfg.data.prostate.pmri.data_path
+
+def get_mnm_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf):
+    datapath = cfg.data.heart.mnm.data_path
     data = {}
     if train_set:
-        print(f'Loading training PMRI dataset for vendor {cfg.unet.prostate.training.vendor} ...')
-        data['train'] = MultisiteMRIProstateDataset(
+        print(
+            f"Loading training M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
+        )
+        data["train"] = MnMDataset(
             datapath=datapath,
-            vendor=cfg.unet.prostate.training.vendor,
-            split='train',
-            load_only_present=cfg.unet.prostate.training.load_only_present,
-            format=cfg.format
+            vendor=cfg.unet.heart.training.vendor,
+            split="train",
+            load_only_present=cfg.unet.heart.training.load_only_present,
+            format=cfg.format,
         )
     if val_set:
-        print(f'Loading validation PMRI dataset for vendor {cfg.unet.prostate.training.vendor} ...')
-        data['val'] = MultisiteMRIProstateDataset(
+        print(
+            f"Loading validation M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
+        )
+        data["val"] = MnMDataset(
             datapath=datapath,
-            vendor=cfg.unet.prostate.training.vendor,
-            split='valid' if cfg.unet.prostate.training.validation is True else 'train',
-            load_only_present=cfg.unet.prostate.training.load_only_present,
+            vendor=cfg.unet.heart.training.vendor,
+            split="valid" if cfg.unet.heart.training.validation is True else "train",
+            load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
-            subset=cfg.unet.prostate.training.subset
+            subset=cfg.unet.heart.training.subset,
         )
     if eval_set:
-        print(f'Loading evaluation PMRI dataset for vendor {cfg.unet.prostate.training.vendor} ...')
+        print(
+            f"Loading evaluation M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
+        )
         transforms = Transforms()
-        data['eval'] = MultisiteMRIProstateDataset(
+        data["eval"] = MnMDataset(
             datapath=datapath,
-            vendor=cfg.unet.prostate.training.vendor,
-            split='eval',
-            load_only_present=cfg.unet.prostate.training.load_only_present,
+            vendor=cfg.unet.heart.training.vendor,
+            split="eval",
+            load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
-            transform=transforms.get_transforms('eval_io_transforms'),
-            subset=cfg.unet.prostate.training.subset
+            transform=transforms.get_transforms("eval_io_transforms"),
+            subset=cfg.unet.heart.training.subset,
         )
     assert len(data) > 0, "No data sets selected."
     return data
 
+
+def get_pmri_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf):
+    datapath = cfg.data.prostate.pmri.data_path
+    data = {}
+    if train_set:
+        print(
+            f"Loading training PMRI dataset for vendor {cfg.unet.prostate.training.vendor} ..."
+        )
+        data["train"] = MultisiteMRIProstateDataset(
+            datapath=datapath,
+            vendor=cfg.unet.prostate.training.vendor,
+            split="train",
+            load_only_present=cfg.unet.prostate.training.load_only_present,
+            format=cfg.format,
+        )
+    if val_set:
+        print(
+            f"Loading validation PMRI dataset for vendor {cfg.unet.prostate.training.vendor} ..."
+        )
+        data["val"] = MultisiteMRIProstateDataset(
+            datapath=datapath,
+            vendor=cfg.unet.prostate.training.vendor,
+            split="valid" if cfg.unet.prostate.training.validation is True else "train",
+            load_only_present=cfg.unet.prostate.training.load_only_present,
+            format=cfg.format,
+            subset=cfg.unet.prostate.training.subset,
+        )
+    if eval_set:
+        print(
+            f"Loading evaluation PMRI dataset for vendor {cfg.unet.prostate.training.vendor} ..."
+        )
+        transforms = Transforms()
+        data["eval"] = MultisiteMRIProstateDataset(
+            datapath=datapath,
+            vendor=cfg.unet.prostate.training.vendor,
+            split="eval",
+            load_only_present=cfg.unet.prostate.training.load_only_present,
+            format=cfg.format,
+            transform=transforms.get_transforms("eval_io_transforms"),
+            subset=cfg.unet.prostate.training.subset,
+        )
+    assert len(data) > 0, "No data sets selected."
+    return data
+
+
 class MultiThreadedAugmenter(object):
-    """ 
+    """
     Adapted from batchgenerators, see https://github.com/MIC-DKFZ/batchgenerators/
     Changed user_api from blas to openmp in class method _start in threadpool_limits.
     Otherwise it doesn't work with docker!
-    
+
     Makes your pipeline multi threaded. Yeah!
     If seeded we guarantee that batches are retunred in the same order and with the same augmentation every time this
     is run. This is realized internally by using une queue per worker and querying the queues one ofter the other.
@@ -661,8 +659,17 @@ class MultiThreadedAugmenter(object):
         that will come with a performance penalty. Default is 0.02 which will be fine for 50 iterations/s
     """
 
-    def __init__(self, data_loader, transform, num_processes, num_cached_per_queue=2, seeds=None, pin_memory=False,
-                 timeout=10, wait_time=0.02):
+    def __init__(
+        self,
+        data_loader,
+        transform,
+        num_processes,
+        num_cached_per_queue=2,
+        seeds=None,
+        pin_memory=False,
+        timeout=10,
+        wait_time=0.02,
+    ):
         self.timeout = timeout
         self.pin_memory = pin_memory
         self.transform = transform
@@ -696,8 +703,10 @@ class MultiThreadedAugmenter(object):
         while item is None:
             if self.abort_event.is_set():
                 self._finish()
-                raise RuntimeError("One or more background workers are no longer alive. Exiting. Please check the "
-                                   "print statements above for the actual error message")
+                raise RuntimeError(
+                    "One or more background workers are no longer alive. Exiting. Please check the "
+                    "print statements above for the actual error message"
+                )
 
             if not self.pin_memory_queue.empty():
                 item = self.pin_memory_queue.get()
@@ -726,7 +735,9 @@ class MultiThreadedAugmenter(object):
             return item
 
         except KeyboardInterrupt:
-            logging.error("MultiThreadedGenerator: caught exception: {}".format(sys.exc_info()))
+            logging.error(
+                "MultiThreadedGenerator: caught exception: {}".format(sys.exc_info())
+            )
             self.abort_event.set()
             self._finish()
             raise KeyboardInterrupt
@@ -740,14 +751,25 @@ class MultiThreadedAugmenter(object):
             self._queue_ctr = 0
             self._end_ctr = 0
 
-            if hasattr(self.generator, 'was_initialized'):
+            if hasattr(self.generator, "was_initialized"):
                 self.generator.was_initialized = False
 
             with threadpool_limits(limits=1, user_api="openmp"):
                 for i in range(self.num_processes):
                     self._queues.append(Queue(self.num_cached_per_queue))
-                    self._processes.append(Process(target=producer, args=(
-                        self._queues[i], self.generator, self.transform, i, self.seeds[i], self.abort_event)))
+                    self._processes.append(
+                        Process(
+                            target=producer,
+                            args=(
+                                self._queues[i],
+                                self.generator,
+                                self.transform,
+                                i,
+                                self.seeds[i],
+                                self.abort_event,
+                            ),
+                        )
+                    )
                     self._processes[-1].daemon = True
                     self._processes[-1].start()
 
@@ -757,26 +779,42 @@ class MultiThreadedAugmenter(object):
                 gpu = None
 
             # more caching = more performance. But don't cache too much or your RAM will hate you
-            self.pin_memory_queue = thrQueue(max(3, self.num_cached_per_queue * self.num_processes // 2))
+            self.pin_memory_queue = thrQueue(
+                max(3, self.num_cached_per_queue * self.num_processes // 2)
+            )
 
-            self.pin_memory_thread = threading.Thread(target=results_loop, args=(
-                self._queues, self.pin_memory_queue, self.abort_event, self.pin_memory, gpu, self.wait_time,
-                self._processes))
+            self.pin_memory_thread = threading.Thread(
+                target=results_loop,
+                args=(
+                    self._queues,
+                    self.pin_memory_queue,
+                    self.abort_event,
+                    self.pin_memory,
+                    gpu,
+                    self.wait_time,
+                    self._processes,
+                ),
+            )
 
             self.pin_memory_thread.daemon = True
             self.pin_memory_thread.start()
 
             self.was_initialized = True
         else:
-            logging.debug("MultiThreadedGenerator Warning: start() has been called but it has already been "
-                          "initialized previously")
+            logging.debug(
+                "MultiThreadedGenerator Warning: start() has been called but it has already been "
+                "initialized previously"
+            )
 
     def _finish(self, timeout=10):
         self.abort_event.set()
 
         start = time()
-        while self.pin_memory_thread is not None and self.pin_memory_thread.is_alive() and start + timeout > time():
-            
+        while (
+            self.pin_memory_thread is not None
+            and self.pin_memory_thread.is_alive()
+            and start + timeout > time()
+        ):
             sleep(0.2)
 
         if len(self._processes) != 0:
@@ -804,15 +842,13 @@ class MultiThreadedAugmenter(object):
         logging.debug("MultiThreadedGenerator: destructor was called")
         self._finish()
 
-def get_train_loader(
-    training: str,
-    cfg: OmegaConf
-):
-    """ Instantiates dataloaders for either Calgary-Campinas or ACDC dataset.
+
+def get_train_loader(training: str, cfg: OmegaConf):
+    """Instantiates dataloaders for either Calgary-Campinas or ACDC dataset.
 
     Args:
         training (str): Either 'unet' or 'dae'
-        cfg (OmegaConf): data config. 
+        cfg (OmegaConf): data config.
             Contains the task specific data paths and the data_key.
 
     Returns:
@@ -820,45 +856,98 @@ def get_train_loader(
         val_loader (MultiThreadedAugmenter): Validation data generator.
     """
 
-    if cfg.run.data_key == 'prostate':
+    if cfg.run.data_key == "prostate":
         train_loader, val_loader = get_pmri_data_loaders(training=training, cfg=cfg)
     else:
-        raise ValueError(f"Unknown task {cfg.run.data_key}. Task key must be either 'brain' or 'heart'")
+        raise ValueError(
+            f"Unknown task {cfg.run.data_key}. Task key must be either 'brain' or 'heart'"
+        )
     return train_loader, val_loader
+
 
 def get_pmri_data_loaders(cfg: OmegaConf):
     data = get_pmri_data(train_set=True, val_set=True, eval_set=False, cfg=cfg)
-    assert 'train' in data and 'val' in data, 'Training and validation sets are required'
+    assert (
+        "train" in data and "val" in data
+    ), "Training and validation sets are required"
     model_cfg = cfg.unet.prostate
-    train_transform_key = 'all_transforms' if model_cfg.training.augment is True else 'valid_io_transforms'
-    val_transform_key = 'valid_io_transforms'
+    train_transform_key = (
+        "all_transforms"
+        if model_cfg.training.augment is True
+        else "valid_io_transforms"
+    )
+    val_transform_key = "valid_io_transforms"
     transforms = Transforms()
     train_loader = MultiImageSingleViewDataLoader(
-        data=data['train'],
+        data=data["train"],
         batch_size=model_cfg.training.batch_size,
         return_orig=False,
-        permute=True
+        permute=True,
     )
     val_loader = MultiImageSingleViewDataLoader(
-        data=data['val'],
+        data=data["val"],
         batch_size=model_cfg.training.batch_size,
         return_orig=False,
-        permute=True
+        permute=True,
     )
     train_augmentor = transforms.get_transforms(train_transform_key)
     valid_augmentor = transforms.get_transforms(val_transform_key)
     train_gen = MultiThreadedAugmenter(
-        data_loader = train_loader,
-        transform = train_augmentor,
-        num_processes = 4,
-        num_cached_per_queue = 2,
-        seeds=None
+        data_loader=train_loader,
+        transform=train_augmentor,
+        num_processes=4,
+        num_cached_per_queue=2,
+        seeds=None,
     )
     valid_gen = MultiThreadedAugmenter(
-        data_loader = val_loader, 
-        transform = valid_augmentor, 
-        num_processes = 4, 
-        num_cached_per_queue = 2, 
-        seeds=None
+        data_loader=val_loader,
+        transform=valid_augmentor,
+        num_processes=4,
+        num_cached_per_queue=2,
+        seeds=None,
     )
-    return train_gen, valid_gen   
+    return train_gen, valid_gen
+
+
+def get_mnm_data_loaders(cfg: OmegaConf):
+    data = get_mnm_data(train_set=True, val_set=True, eval_set=False, cfg=cfg)
+    assert (
+        "train" in data and "val" in data
+    ), "Training and validation sets are required"
+    model_cfg = cfg.unet.heart
+    train_transform_key = (
+        "all_transforms"
+        if model_cfg.training.augment is True
+        else "valid_io_transforms"
+    )
+    val_transform_key = "valid_io_transforms"
+    transforms = Transforms()
+    train_loader = MultiImageSingleViewDataLoader(
+        data=data["train"],
+        batch_size=model_cfg.training.batch_size,
+        return_orig=False,
+        permute=True,
+    )
+    val_loader = MultiImageSingleViewDataLoader(
+        data=data["val"],
+        batch_size=model_cfg.training.batch_size,
+        return_orig=False,
+        permute=True,
+    )
+    train_augmentor = transforms.get_transforms(train_transform_key)
+    valid_augmentor = transforms.get_transforms(val_transform_key)
+    train_gen = MultiThreadedAugmenter(
+        data_loader=train_loader,
+        transform=train_augmentor,
+        num_processes=4,
+        num_cached_per_queue=2,
+        seeds=None,
+    )
+    valid_gen = MultiThreadedAugmenter(
+        data_loader=val_loader,
+        transform=valid_augmentor,
+        num_processes=4,
+        num_cached_per_queue=2,
+        seeds=None,
+    )
+    return train_gen, valid_gen

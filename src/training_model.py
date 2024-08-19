@@ -8,11 +8,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 sys.path.append(REPO_PATH)
 
 from models import get_unet
-from data_utils import get_pmri_data_loaders
+from data_utils import get_pmri_data_loaders, get_mnm_data_loaders
 from unet_trainer import get_unet_trainer
 
 ### Load basic config
-DATA_KEY = "prostate"
+# DATA_KEY = "prostate"
+DATA_KEY = "heart"
 AUGMENT = True
 SUBSET = False  # Whether the validation is a subset or the whole set
 VALIDATION = True  # If false makes validation set be the training one
@@ -25,13 +26,14 @@ cfg.unet[DATA_KEY].training.load_only_present = LOAD_ONLY_PRESENT
 cfg.unet[DATA_KEY].training.validation = VALIDATION
 cfg.unet[DATA_KEY].training.subset = SUBSET
 cfg.format = "torch"
-train_loader, val_loader = get_pmri_data_loaders(cfg=cfg)
+if DATA_KEY == "prostate":
+    train_loader, val_loader = get_pmri_data_loaders(cfg=cfg)
+elif DATA_KEY == "heart":
+    train_loader, val_loader = get_mnm_data_loaders(cfg=cfg)
 
 for iteration in range(5):
     OmegaConf.update(cfg, "run.iteration", iteration)
     for unet_name in ["monai-64-4-4", "swinunetr"]:
-        # unet_name = 'monai-64-4-4'
-        # unet_name = 'swinunetr'
         cfg.wandb.project = f"{DATA_KEY}_{unet_name}_{iteration}{EXTRA_DESCRIPTION}"
         args = unet_name.split("-")
         cfg.unet[DATA_KEY].pre = unet_name
@@ -54,11 +56,11 @@ for iteration in range(5):
         )
 
         unet = get_unet(cfg, return_state_dict=False)
-        pmri_trainer = get_unet_trainer(
+        unet_trainer = get_unet_trainer(
             cfg=cfg, train_loader=train_loader, val_loader=val_loader, model=unet
         )
 
         try:
-            pmri_trainer.fit()
+            unet_trainer.fit()
         finally:
             wandb.finish()

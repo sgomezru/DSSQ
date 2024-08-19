@@ -19,8 +19,8 @@ from monai.losses.dice import DiceCELoss
 
 
 def get_unet_trainer(cfg, train_loader, val_loader, model):
-    """Wrapper function to instantiate a unet trainer for either ACDC or
-    Calgary-Campinas dataset
+    """
+    Unet trainer for PMRI or M&M dataset
 
     Args:
         cfg (OmegaConf): general config with segmentation model information
@@ -36,19 +36,19 @@ def get_unet_trainer(cfg, train_loader, val_loader, model):
         model (nn.Module): (unet) model
 
     Returns:
-        UNetTrainerACDC or UNetTrainerCalgary: trainer object
+        UNetTrainer: trainer object
     """
-    if cfg.run.data_key == "prostate":
-        trainer = get_unet_prostate_trainer(cfg, train_loader, val_loader, model)
+    if cfg.run.data_key == "prostate" or cfg.run.data_key == "heart":
+        trainer = get_unet_data_trainer(cfg, train_loader, val_loader, model)
     else:
         raise NotImplementedError
 
     return trainer
 
 
-def get_unet_prostate_trainer(cfg, train_loader, val_loader, model):
+def get_unet_data_trainer(cfg, train_loader, val_loader, model):
     """
-    Trainer for Multisite PMRI dataset
+    Trainer for PMRI or M&M dataset
     """
     model_cfg = cfg.unet[cfg.run.data_key]
     num_batches_per_epoch = model_cfg.training.num_batches_per_epoch
@@ -62,7 +62,7 @@ def get_unet_prostate_trainer(cfg, train_loader, val_loader, model):
     log = cfg.wandb.log
     criterion = DiceCELoss(softmax=True, to_onehot_y=True)
 
-    return UNetTrainerPMRI(
+    return UNetTrainer(
         model=model,
         criterion=criterion,
         train_loader=train_loader,
@@ -81,9 +81,9 @@ def get_unet_prostate_trainer(cfg, train_loader, val_loader, model):
     )
 
 
-class UNetTrainerPMRI:
+class UNetTrainer:
     """
-    Trainer class for training and evaluating a U-Net model for PMRI dataset.
+    Trainer class for training and evaluating a U-Net model for PMRI or M&M dataset.
     """
 
     def __init__(
@@ -326,21 +326,4 @@ class UNetTrainerPMRI:
         self.training_time = time.time() - self.training_time
         self.save_hist()
         self.load_model()
-        print(f"Total training time (min): {self.training_time / 60.}")
-
-    def fit_adapter(self):
-        progress_bar = tqdm(
-            range(self.num_batches_per_epoch),
-            total=self.num_batches_per_epoch,
-            position=0,
-            leave=True,
-        )
-        self.model.eval()
-        self.training_time = time.time()
-        with torch.no_grad():
-            for it in progress_bar:
-                batch = next(self.train_loader)
-                input_ = batch["data"].float()
-                self.inference_step(input_)
-        self.training_time = time.time() - self.training_time
         print(f"Total training time (min): {self.training_time / 60.}")
