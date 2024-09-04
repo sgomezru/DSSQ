@@ -537,11 +537,17 @@ def get_eval_data(
     val_set: bool = False,
     eval_set: bool = False,
 ):
+    assert cfg.run.data_key in ["prostate", "heart"], "Invalid data key."
     if cfg.run.data_key == "prostate":
         data = get_pmri_data(
             train_set=train_set, val_set=val_set, eval_set=eval_set, cfg=cfg
         )
-    return data
+        return data
+    elif cfg.run.data_key == "heart":
+        data = get_mnm_data(
+            train_set=train_set, val_set=val_set, eval_set=eval_set, cfg=cfg
+        )
+        return data
 
 
 def get_mnm_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf):
