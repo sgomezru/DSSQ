@@ -19,6 +19,7 @@ class DimReductAdapter(nn.Module):
         pre_fit=False,
         fit_gaussian=False,
         fit_scaler=False,
+        undo_dim=False,
         project="",
         device="cuda:0",
         debug=False,
@@ -32,6 +33,7 @@ class DimReductAdapter(nn.Module):
         self.pre_fit = pre_fit
         self.fit_gaussian = fit_gaussian
         self.fit_scaler = fit_scaler
+        self.undo_dim = undo_dim
         self.project = project
         self.debug = debug
         self.module_path = "/workspace/out/dim_modules/"
@@ -54,6 +56,8 @@ class DimReductAdapter(nn.Module):
         elif self.fit_scaler is True and "PCA" in self.mode:
             self.dim_scaler = StandardScaler()
         if self.mode == "AVG_POOL":
+            self.module_path = self.module_path.split("_scaled")[0] + ".pkl"
+            self.gaussian_path = self.gaussian_path.split("_scaled")[0] + ".pt"
             self.dim_module = nn.AvgPool2d(kernel_size=2, stride=2)
             if self.debug:
                 print(f"Instantiated new {self.mode} module")
@@ -208,6 +212,7 @@ class DimReductAdapter(nn.Module):
         # print(f"Adapter {self.swivel} received input of shape {x.size()}")
         x = x.detach().cpu()
         if "PCA" in self.mode:
+            x_shape = x.size()
             x = x.contiguous().view(x.size(0), -1)
             x_np = x.detach().cpu().numpy()
             if self.fit_scaler is True:
@@ -223,12 +228,19 @@ class DimReductAdapter(nn.Module):
                         else np.vstack([self.activations, x_np])
                     )
             elif self.pre_fit is True:
-                x_np = self.dim_scaler.transform(x_np)
-                x_np = self.dim_reduce(x_np)
+                x_sc = self.dim_scaler.transform(x_np)
+                x_sc = self.dim_reduce(x_sc)
                 if self.fit_gaussian is True:
-                    self.reduced_acts.append(x_np)
+                    self.reduced_acts.append(x_sc)
                 else:
-                    self._mahalanobis_dist(x_np)
+                    self._mahalanobis_dist(x_sc)
+                if self.undo_dim is True:
+                    x_np = self.dim_reduce(x_np)
+                    x_reversed = torch.tensor(
+                        self.dim_module.inverse_transform(x_np), dtype=torch.float
+                    ).to(self.device)
+                    x_reversed = x_reversed.view(x_shape)
+                    return x_reversed
         elif self.mode == "AVG_POOL":
             x = self.dim_reduce(x)
             x_np = x.contiguous().view(x.size(0), -1).detach().cpu().numpy()
@@ -239,11 +251,14 @@ class DimReductAdapter(nn.Module):
 
 
 class DimReductModuleWrapper(nn.Module):
-    def __init__(self, model, adapters, downstream_ood=False, copy=True):
+    def __init__(
+        self, model, adapters, downstream_ood=False, upstream_hooks=False, copy=True
+    ):
         super().__init__()
         self.model = deepcopy(model) if copy else model
         self.downstream_ood = downstream_ood
         self.adapters = adapters
+        self._upstream_hooks = upstream_hooks
         self._hook_adapters()
         self.model.eval()
 
@@ -257,8 +272,10 @@ class DimReductModuleWrapper(nn.Module):
 
     def _get_hook(self, adapter):
         def hook_fn(module: nn.Module, x: Tuple[Tensor]) -> Tensor:
-            adapter(x[0])
-            # return adapter(x)
+            if self._upstream_hooks is False:
+                adapter(x[0])
+            else:
+                return adapter(x[0])
 
         return hook_fn
 
