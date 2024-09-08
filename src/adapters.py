@@ -36,8 +36,8 @@ class DimReductAdapter(nn.Module):
         self.undo_dim = undo_dim
         self.project = project
         self.debug = debug
-        self.module_path = "/workspace/out/dim_modules/"
-        self.gaussian_path = "/workspace/out/gaussians/"
+        self.module_path = "/workspace/out/dms/"
+        self.gaussian_path = "/workspace/out/gms/"
         self._init()
 
     def _init(self):
@@ -45,8 +45,10 @@ class DimReductAdapter(nn.Module):
         self.inv_cov = None
         self._clean_storage()
         self.scaler_path = f'{self.module_path}{self.project}_{self.swivel.replace(".", "_")}_scaler.pkl'
-        self.module_path += f'{self.project}_{self.mode}_{self.swivel.replace(".", "_")}_{self.n_dims}dim_scaled.pkl'
-        self.gaussian_path += f'{self.project}_{self.mode}_gaussian_params_{self.swivel.replace(".", "_")}_{self.n_dims}dim_scaled.pt'
+        self.module_path += (
+            f'{self.project}_{self.mode}_{self.swivel.replace(".", "_")}.pkl'
+        )
+        self.gaussian_path += f'{self.project}_{self.mode}_gaussian_{self.swivel.replace(".", "_")}_{self.n_dims}dim.pt'
         if self.fit_scaler is False and "PCA" in self.mode:
             try:
                 with open(self.scaler_path, "rb") as f:
@@ -56,25 +58,28 @@ class DimReductAdapter(nn.Module):
         elif self.fit_scaler is True and "PCA" in self.mode:
             self.dim_scaler = StandardScaler()
         if self.mode == "AVG_POOL":
-            self.module_path = self.module_path.split("_scaled")[0] + ".pkl"
-            self.gaussian_path = self.gaussian_path.split("_scaled")[0] + ".pt"
+            # self.module_path = self.module_path.split("_scaled")[0] + ".pkl"
+            # self.gaussian_path = self.gaussian_path.split("_scaled")[0] + ".pt"
             self.dim_module = nn.AvgPool2d(kernel_size=2, stride=2)
             if self.debug:
                 print(f"Instantiated new {self.mode} module")
-        if self.pre_fit is False:
+        if self.pre_fit is False and self.fit_scaler is False:
             if self.mode == "IPCA":
-                self.dim_module = IncrementalPCA(
-                    n_components=self.n_dims, batch_size=self.bs
-                )
+                self.dim_module = IncrementalPCA(n_components=32, batch_size=self.bs)
             elif self.mode == "PCA":
-                self.dim_module = PCA(n_components=self.n_dims)
+                self.dim_module = PCA(n_components=960)
             if self.debug:
                 print(f"Instantiated new {self.mode} module")
         elif self.pre_fit is True:
             if "PCA" in self.mode:
                 try:
                     with open(self.module_path, "rb") as f:
-                        self.dim_module = pickle.load(f)
+                        tmp_dim_module = pickle.load(f)
+                        self.dim_module = PCA(n_components=self.n_dims)
+                        self.dim_module.mean_ = tmp_dim_module.mean_
+                        self.dim_module.components_ = tmp_dim_module.components_[
+                            : self.n_dims
+                        ]
                     if self.debug:
                         print(f"Loaded {self.mode} from path {self.module_path}")
                 except Exception as e:
@@ -200,12 +205,19 @@ class DimReductAdapter(nn.Module):
 
     def dim_reduce(self, x):
         if self.mode in ["PCA", "IPCA"]:
-            return self.dim_module.transform(x)
+            dm = self.dim_module.transform(x)
+            return dm
         elif self.mode == "AVG_POOL":
             while torch.prod(torch.tensor(x.size()[1:])) > self.n_dims:
                 x = self.dim_module(x)
             x = self.dim_module(x)
             return x
+
+    def undo_dim_reduce(self, x, x_shape):
+        x_reversed = self.dim_module.inverse_transform(x)
+        x_reversed = torch.tensor(x_reversed, dtype=torch.float).to(self.device)
+        x_reversed = x_reversed.view(x_shape)
+        return x_reversed
 
     def forward(self, x):
         # X must be of shape (n_samples, n_features), thus flattened, and comes as a torch tensor
@@ -221,7 +233,7 @@ class DimReductAdapter(nn.Module):
                 x_np = self.dim_scaler.transform(x_np)
                 if self.mode == "IPCA":
                     self.dim_module.partial_fit(x_np)
-                elif self.mode in ["PCA"]:
+                elif self.mode == "PCA":
                     self.activations = (
                         x_np
                         if self.activations is None
@@ -232,15 +244,12 @@ class DimReductAdapter(nn.Module):
                 x_sc = self.dim_reduce(x_sc)
                 if self.fit_gaussian is True:
                     self.reduced_acts.append(x_sc)
+                elif self.undo_dim is True:
+                    x_np = self.dim_reduce(x_np)
+                    x_reversed = self.undo_dim_reduce(x_np, x_shape)
+                    return x_reversed
                 else:
                     self._mahalanobis_dist(x_sc)
-                if self.undo_dim is True:
-                    x_np = self.dim_reduce(x_np)
-                    x_reversed = torch.tensor(
-                        self.dim_module.inverse_transform(x_np), dtype=torch.float
-                    ).to(self.device)
-                    x_reversed = x_reversed.view(x_shape)
-                    return x_reversed
         elif self.mode == "AVG_POOL":
             x = self.dim_reduce(x)
             x_np = x.contiguous().view(x.size(0), -1).detach().cpu().numpy()
