@@ -28,13 +28,10 @@ from utils import epoch_average
 eps = 1e-10
 MODE = "eval"
 LOG = False
-DATA_KEY = "heart"
+DATA_KEY = "prostate"
 LOAD_ONLY_PRESENT = True
 VALIDATION = True
 EXTRA_DESCRIPTION = "_base"
-N_DIMS_0 = [2, 4, 8, 16, 32, 64, 128, 256, 512, 960, 1e4]
-N_DIMS_PCA = [2, 4, 8, 16, 32, 64, 128, 256, 512, 960]
-N_DIMS_IPCA = [2, 4, 8, 16]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
@@ -122,7 +119,7 @@ def plot_roc(fpr, tpr, area, title=None):
     if title is not None:
         plt.title(f"ROC {title}")
     else:
-        plt.title(f"ROC")
+        plt.title("ROC")
     plt.legend(loc="lower right")
 
 
@@ -286,6 +283,60 @@ def plot_kde(arr):
     plt.show()
 
 
+def compute_aurc_e(y_true, confs, higher_conf_better=True):
+    """Error rate curve"""
+    n_samples = len(y_true)
+    idx_sorted = np.argsort(confs)
+    if higher_conf_better:
+        idx_sorted = idx_sorted[::-1]
+    # Cumulative error
+    cum_errors = np.cumsum(y_true[idx_sorted])
+    counts = np.arange(1, n_samples + 1)
+    # Coverages
+    coverages = counts / n_samples
+    detection_error_rates = cum_errors / counts
+    # Full coverage (starting point)
+    coverages = np.insert(coverages, 0, 0)
+    detection_error_rates = np.insert(detection_error_rates, 0, 0)
+    aurc_e = metrics.auc(coverages[::-1], detection_error_rates[::-1])
+    return aurc_e
+
+
+def compute_aurc_i(dices, confs, higher_conf_better=True, plot=False):
+    risks = 1 - dices
+    n_samples = len(risks)
+    # Sort by confidence scores (highest first)
+    idx_sorted = np.argsort(confs)
+    if higher_conf_better:
+        idx_sorted = idx_sorted[::-1]
+    # Risks
+    cum_risks = np.cumsum(risks[idx_sorted])
+    counts = np.arange(1, n_samples + 1)
+    # Coverages
+    coverages = counts / n_samples
+    selective_risks = cum_risks / counts
+    # Full coverage (starting point)
+    coverages = np.insert(coverages, 0, 0)
+    selective_risks = np.insert(selective_risks, 0, 0)
+    aurc = metrics.auc(coverages[::-1], selective_risks[::-1])
+    return aurc
+    # if plot:
+    #     plt.figure(figsize=(8, 6))
+    #     plt.plot(
+    #         coverages,
+    #         selective_risks,
+    #         label=f"AURC = {aurc:.4f}",
+    #         color="blue",
+    #         marker="o",
+    #     )
+    #     plt.fill_between(coverages, selective_risks, color="lightblue", alpha=0.4)
+    #     plt.xlabel("Coverage")
+    #     plt.ylabel("Selective Risk")
+    #     plt.title(f"Risk-Coverage Curve (AURC : {aurc:.4f})")
+    #     plt.grid(True)
+    #     plt.show()
+
+
 def compute_aurc(y_true, y_prob, positive=False, plot=False):
     if positive is False:
         y_prob = -y_prob
@@ -326,369 +377,306 @@ collected_stats_dim_ent = []
 train_md_distances = {}
 roc_data = {}
 model_data = {}
-AUROC_PLOT = False
 
-for vendor in test_vendors:
-    cfg, _ = load_conf(data_key=DATA_KEY)
-    cfg.unet[DATA_KEY].training.subset = (
-        "validation" if vendor in train_vendors else False
-    )
-    cfg.unet[DATA_KEY].training.vendor = vendor
-    data = get_eval_data(train_set=False, val_set=False, eval_set=True, cfg=cfg)
-    for iter in range(3):
-        for model in models:
-            cfg, layer_names = load_conf(model, iteration=iter, data_key=DATA_KEY)
-            model_base, state_dict = get_unet(cfg, return_state_dict=True)
-            model_base = model_base.to(device)
-            model_base.eval()
-            model_base_dices, model_base_entropy, model_base_probs = (
-                eval_pmri_dice_entropy(cfg, model_base, data["eval"])
-            )
-            model_base_probs = model_base_probs.to(device)
-            model_data[f"{model}_{vendor}_test_{iter}"] = {
-                "mean_dice": model_base_dices.mean().item(),
-                "std_dice": model_base_dices.std().item(),
-                "mean_entropy": model_base_entropy.mean().item(),
-                "std_entropy": model_base_entropy.std().item(),
-            }
-            if vendor == "siemens":
-                ood_dice_th_5 = torch.quantile(model_base_dices, 0.05).item()
-                ood_dice_th_10 = torch.quantile(model_base_dices, 0.10).item()
-                model_data[f"{model}_{vendor}_test_{iter}"]["ood_dice_th_5"] = (
-                    ood_dice_th_5
+for DATA_KEY in ["prostate", "heart"]:
+    for vendor in test_vendors:
+        cfg, _ = load_conf(data_key=DATA_KEY)
+        cfg.unet[DATA_KEY].training.subset = (
+            "validation" if vendor in train_vendors else False
+        )
+        cfg.unet[DATA_KEY].training.vendor = vendor
+        data = get_eval_data(train_set=False, val_set=False, eval_set=True, cfg=cfg)
+        for iter in range(5):
+            for model in models:
+                cfg, layer_names = load_conf(model, iteration=iter, data_key=DATA_KEY)
+                model_base, state_dict = get_unet(cfg, return_state_dict=True)
+                model_base = model_base.to(device)
+                model_base.eval()
+                model_base_dices, model_base_entropy, model_base_probs = (
+                    eval_pmri_dice_entropy(cfg, model_base, data["eval"])
                 )
-                model_data[f"{model}_{vendor}_test_{iter}"]["ood_dice_th_10"] = (
-                    ood_dice_th_10
-                )
-            else:
-                ood_dice_th_10 = model_data[f"{model}_siemens_test_{iter}"][
-                    "ood_dice_th_10"
-                ]
-                ood_dice_th_5 = model_data[f"{model}_siemens_test_{iter}"][
-                    "ood_dice_th_5"
-                ]
-            ood_mask_5 = (model_base_dices < ood_dice_th_5).squeeze()
-            ood_mask_10 = (model_base_dices < ood_dice_th_10).squeeze()
-            ood_mask_95 = (model_base_dices < 0.95).squeeze()
-            for dim_red_mode in dim_red_modes:
-                if dim_red_mode == "AVG_POOL":
-                    n_dims_iter = [1e4]
-                elif dim_red_mode == "PCA":
-                    n_dims_iter = [2, 4, 8, 16, 512, 960]
-                elif dim_red_mode == "IPCA":
-                    n_dims_iter = [2, 4, 8, 16]
-                for n_dims in n_dims_iter:
-                    print(
-                        f"Running iter {iter} for vendor {vendor}, {dim_red_mode} mode of {n_dims} dims"
+                model_base_probs = model_base_probs.to(device)
+                model_data[f"{model}_{vendor}_test_{iter}"] = {
+                    "mean_dice": model_base_dices.mean().item(),
+                    "std_dice": model_base_dices.std().item(),
+                    "mean_entropy": model_base_entropy.mean().item(),
+                    "std_entropy": model_base_entropy.std().item(),
+                }
+                if vendor == "siemens":
+                    ood_dice_th_5 = torch.quantile(model_base_dices, 0.05).item()
+                    model_data[f"{model}_{vendor}_test_{iter}"]["ood_dice_th_5"] = (
+                        ood_dice_th_5
                     )
-                    adapters = [
-                        DimReductAdapter(
-                            swivel,
-                            n_dims,
-                            cfg.unet[DATA_KEY].training.batch_size,
-                            mode=dim_red_mode,
-                            pre_fit=True,
-                            fit_gaussian=False,
-                            project=cfg.wandb.project,
-                        )
-                        for swivel in layer_names
+                else:
+                    ood_dice_th_5 = model_data[f"{model}_siemens_test_{iter}"][
+                        "ood_dice_th_5"
                     ]
-                    adapters = nn.ModuleList(adapters)
-                    model_adapted = DimReductModuleWrapper(
-                        model=model_base, adapters=adapters
-                    )
-                    model_adapted = model_adapted.to(device)
-                    model_adapted.eval()
-                    # Mahalanobis distances (md)
-                    print("MD eval")
-                    md = eval_pmri_MD(cfg, model_adapted, data["eval"])
-                    for adapter in md:
-                        tmp_data = md[adapter]
-                        if vendor == "siemens":
-                            reg_min = tmp_data.min().item()
-                            reg_max = tmp_data.max().item()
-                            train_md_distances[
-                                f"{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_val"
-                            ] = {"min": reg_min, "max": reg_max}
-                        else:
-                            reg_min = np.min(
-                                [
-                                    train_md_distances[
-                                        f"{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_val"
-                                    ]["min"],
-                                    tmp_data.min().item(),
-                                ]
-                            )
-                            reg_max = np.max(
-                                [
-                                    train_md_distances[
-                                        f"{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_val"
-                                    ]["max"],
-                                    tmp_data.max().item(),
-                                ]
-                            )
-                        # norm_tmp_data = (tmp_data - tmp_data.min()) / (tmp_data.max() - tmp_data.min())
-                        norm_tmp_data = (tmp_data - reg_min) / (reg_max - reg_min)
-                        ood_data_5 = tmp_data[ood_mask_5]
-                        id_data_5 = tmp_data[~ood_mask_5]
-                        aurc5 = compute_aurc(
-                            ood_mask_5.numpy(), norm_tmp_data.numpy(), positive=False
+                ood_mask_5 = (model_base_dices < ood_dice_th_5).squeeze()
+                ood_mask_95 = (model_base_dices < 0.95).squeeze()
+                for dim_red_mode in dim_red_modes:
+                    if dim_red_mode == "AVG_POOL":
+                        n_dims_iter = [1e4]
+                    elif dim_red_mode == "PCA":
+                        n_dims_iter = [2, 4, 8, 16, 512, 960]
+                    elif dim_red_mode == "IPCA":
+                        n_dims_iter = [2, 4, 8, 16]
+                    for n_dims in n_dims_iter:
+                        print(
+                            f"Running iter {iter} for vendor {vendor}, {dim_red_mode} mode of {n_dims} dims"
                         )
-                        fpr5, tpr5, ths5 = metrics.roc_curve(
-                            ood_mask_5.long().numpy(), norm_tmp_data.numpy()
-                        )
-                        ood_data_10 = tmp_data[ood_mask_10]
-                        id_data_10 = tmp_data[~ood_mask_10]
-                        aurc10 = compute_aurc(
-                            ood_mask_10.numpy(), norm_tmp_data.numpy(), positive=False
-                        )
-                        fpr10, tpr10, ths10 = metrics.roc_curve(
-                            ood_mask_10.long().numpy(), norm_tmp_data.numpy()
-                        )
-                        ood_data_95 = tmp_data[ood_mask_95]
-                        id_data_95 = tmp_data[~ood_mask_95]
-                        aurc95 = compute_aurc(
-                            ood_mask_95.numpy(), norm_tmp_data.numpy(), positive=False
-                        )
-                        fpr95, tpr95, ths95 = metrics.roc_curve(
-                            ood_mask_95.long().numpy(), norm_tmp_data.numpy()
-                        )
-                        collected_stats_md.append(
-                            {
-                                "model": model,
-                                "dim_red_mode": dim_red_mode,
-                                "n_dims": n_dims,
-                                "vendor": f"{vendor}_test",
-                                "iteration": iter,
-                                "layer": adapter,
-                                "md_mean": tmp_data.mean().item(),
-                                "md_std": tmp_data.mean().item(),
-                                "sprcorr": stats.spearmanr(
-                                    model_base_dices.numpy(), tmp_data.numpy()
-                                )[0],
-                                "num_ood_5": ood_data_5.shape[0],
-                                "num_id_5": id_data_5.shape[0],
-                                "md_ood_5_mean": tmp_data[ood_mask_5].mean().item(),
-                                "md_ood_5_std": tmp_data[ood_mask_5].std().item(),
-                                "md_id_5_mean": tmp_data[~ood_mask_5].mean().item(),
-                                "md_id_5_std": tmp_data[~ood_mask_5].std().item(),
-                                "aurc_5": aurc5,
-                                "auroc_5": metrics.auc(fpr5, tpr5),
-                                "auprc_5": metrics.average_precision_score(
-                                    ood_mask_5.long().numpy(), norm_tmp_data.numpy()
-                                ),
-                                "num_ood_10": ood_data_10.shape[0],
-                                "num_id_10": id_data_10.shape[0],
-                                "md_ood_10_mean": tmp_data[ood_mask_10].mean().item(),
-                                "md_ood_10_std": tmp_data[ood_mask_10].std().item(),
-                                "md_id_10_mean": tmp_data[~ood_mask_10].mean().item(),
-                                "md_id_10_std": tmp_data[~ood_mask_10].std().item(),
-                                "aurc_10": aurc10,
-                                "auroc_10": metrics.auc(fpr10, tpr10),
-                                "auprc_10": metrics.average_precision_score(
-                                    ood_mask_10.long().numpy(), norm_tmp_data.numpy()
-                                ),
-                                "num_ood_95": ood_data_95.shape[0],
-                                "num_id_95": id_data_95.shape[0],
-                                "md_ood_95_mean": tmp_data[ood_mask_95].mean().item(),
-                                "md_ood_95_std": tmp_data[ood_mask_95].std().item(),
-                                "md_id_95_mean": tmp_data[~ood_mask_95].mean().item(),
-                                "md_id_95_std": tmp_data[~ood_mask_95].std().item(),
-                                "aurc_95": aurc95,
-                                "auroc_95": metrics.auc(fpr95, tpr95),
-                                "auprc_95": metrics.average_precision_score(
-                                    ood_mask_95.long().numpy(), norm_tmp_data.numpy()
-                                ),
-                            }
-                        )
-                        # if AUROC_PLOT:
-                        #     sorted_mahal_indices = np.argsort(tmp_data.numpy())
-                        #     sorted_dice_scores = model_base_dices.numpy()[sorted_mahal_indices]
-                        #     sorted_iid = ~ood_mask_5.numpy()[sorted_mahal_indices]
-                        #     error_rates = []
-                        #     fractions_rejected = []
-                        #     for i in range(len(sorted_dice_scores)):
-                        #         fraction_rejected = i / len(sorted_dice_scores)
-                        #         remaining_id = sorted_iid[i:]
-                        #         error_rate = np.sum(~remaining_id) / ood_data_5.shape[0]
-                        #         fractions_rejected.append(fraction_rejected)
-                        #         error_rates.append(error_rate)
-                        #     plt.figure(figsize=(8,6))
-                        #     plt.plot(fractions_rejected, error_rates, marker='o')
-                        #     plt.xlabel('Fraction images rejected')
-                        #     plt.ylabel('Error rate (Fraction of OOD images remaining)')
-                        #     plt.title(f'Error rate vs fraction images rejected for {model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_{vendor}')
-                        #     plt.grid(True)
-                        #     plt.tight_layout()
-                        #     plt.savefig(f'{OUT_PATH}/eval_images/{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_{vendor}_erc.png')
-                        #     plt.close()
-                    for layer in layer_names:
                         adapters = [
                             DimReductAdapter(
-                                layer,
+                                swivel,
                                 n_dims,
                                 cfg.unet[DATA_KEY].training.batch_size,
                                 mode=dim_red_mode,
                                 pre_fit=True,
                                 fit_gaussian=False,
-                                undo_dim=True,
                                 project=cfg.wandb.project,
                             )
+                            for swivel in layer_names
                         ]
                         adapters = nn.ModuleList(adapters)
                         model_adapted = DimReductModuleWrapper(
-                            model=model_base, adapters=adapters, upstream_hooks=True
+                            model=model_base, adapters=adapters
                         )
                         model_adapted = model_adapted.to(device)
                         model_adapted.eval()
-                        print(f"Anomaly score diff {layer}")
-                        mod_dices, mod_entropy, mod_probs = eval_pmri_dice_entropy(
-                            cfg, model_adapted, data["eval"]
-                        )
-                        mod_probs = mod_probs.to(device)
-                        diff = torch.abs(model_base_probs - mod_probs)
-                        diff = diff.mean(dim=(1, 2, 3)).detach().cpu()
-                        fpr5diff, tpr5diff, ths5diff = metrics.roc_curve(
-                            ood_mask_5.long().numpy(), diff.numpy()
-                        )
-                        aurc5diff = compute_aurc(
-                            ood_mask_5.numpy(), diff.numpy(), positive=False
-                        )
-                        fpr10diff, tpr10diff, ths10diff = metrics.roc_curve(
-                            ood_mask_10.long().numpy(), diff.numpy()
-                        )
-                        aurc10diff = compute_aurc(
-                            ood_mask_10.numpy(), diff.numpy(), positive=False
-                        )
-                        fpr95diff, tpr95diff, ths95diff = metrics.roc_curve(
-                            ood_mask_95.long().numpy(), diff.numpy()
-                        )
-                        aurc95diff = compute_aurc(
-                            ood_mask_95.numpy(), diff.numpy(), positive=False
-                        )
-                        fpr5ent, tpr5ent, ths5ent = metrics.roc_curve(
-                            ood_mask_5.long().numpy(), mod_entropy.numpy()
-                        )
-                        aurc5ent = compute_aurc(
-                            ood_mask_5.numpy(), mod_entropy.numpy(), positive=True
-                        )
-                        fpr10ent, tpr10ent, ths10ent = metrics.roc_curve(
-                            ood_mask_10.long().numpy(), mod_entropy.numpy()
-                        )
-                        aurc10ent = compute_aurc(
-                            ood_mask_10.numpy(), mod_entropy.numpy(), positive=True
-                        )
-                        fpr95ent, tpr95ent, ths95ent = metrics.roc_curve(
-                            ood_mask_95.long().numpy(), mod_entropy.numpy()
-                        )
-                        aurc95ent = compute_aurc(
-                            ood_mask_95.numpy(), mod_entropy.numpy(), positive=True
-                        )
-                        collected_stats_dim_ent.append(
-                            {
-                                "model": model,
-                                "dim_red_mode": dim_red_mode,
-                                "n_dims": n_dims,
-                                "vendor": f"{vendor}_test",
-                                "iteration": iter,
-                                "layer": layer,
-                                "entropy_mean": mod_entropy.mean().item(),
-                                "entropy_std": mod_entropy.std().item(),
-                                "entropy_ood_5_mean": mod_entropy[ood_mask_5]
-                                .mean()
-                                .item(),
-                                "entropy_ood_5_std": mod_entropy[ood_mask_5]
-                                .std()
-                                .item(),
-                                "entropy_id_5_mean": mod_entropy[~ood_mask_5]
-                                .mean()
-                                .item(),
-                                "entropy_id_5_std": mod_entropy[~ood_mask_5]
-                                .std()
-                                .item(),
-                                "entropy_ood_10_mean": mod_entropy[ood_mask_10]
-                                .mean()
-                                .item(),
-                                "entropy_ood_10_std": mod_entropy[ood_mask_10]
-                                .std()
-                                .item(),
-                                "entropy_id_10_mean": mod_entropy[~ood_mask_10]
-                                .mean()
-                                .item(),
-                                "entropy_id_10_std": mod_entropy[~ood_mask_10]
-                                .std()
-                                .item(),
-                                "entropy_ood_95_mean": mod_entropy[ood_mask_95]
-                                .mean()
-                                .item(),
-                                "entropy_ood_95_std": mod_entropy[ood_mask_95]
-                                .std()
-                                .item(),
-                                "aurc_5_ent": aurc5ent,
-                                "auroc_5_ent": metrics.auc(fpr5ent, tpr5ent),
-                                "auprc_5_ent": metrics.average_precision_score(
-                                    ood_mask_5.long().numpy(), mod_entropy.numpy()
-                                ),
-                                "aurc_10_ent": aurc10ent,
-                                "auroc_10_ent": metrics.auc(fpr10ent, tpr10ent),
-                                "auprc_10_ent": metrics.average_precision_score(
-                                    ood_mask_10.long().numpy(), mod_entropy.numpy()
-                                ),
-                                "aurc_95_ent": aurc95ent,
-                                "auroc_95_ent": metrics.auc(fpr95ent, tpr95ent),
-                                "auprc_95_ent": metrics.average_precision_score(
-                                    ood_mask_95.long().numpy(), mod_entropy.numpy()
-                                ),
-                                "anomaly_diff_mean": diff.mean().item(),
-                                "anomaly_diff_std": diff.std().item(),
-                                "anomaly_diff_ood_5_mean": diff[ood_mask_5]
-                                .mean()
-                                .item(),
-                                "anomaly_diff_ood_5_std": diff[ood_mask_5].std().item(),
-                                "anomaly_diff_id_5_mean": diff[~ood_mask_5]
-                                .mean()
-                                .item(),
-                                "anomaly_diff_id_5_std": diff[~ood_mask_5].std().item(),
-                                "anomaly_diff_ood_10_mean": diff[ood_mask_10]
-                                .mean()
-                                .item(),
-                                "anomaly_diff_ood_10_std": diff[ood_mask_10]
-                                .std()
-                                .item(),
-                                "anomaly_diff_id_10_mean": diff[~ood_mask_10]
-                                .mean()
-                                .item(),
-                                "anomaly_diff_id_10_std": diff[~ood_mask_10]
-                                .std()
-                                .item(),
-                                "anomaly_diff_ood_95_mean": diff[ood_mask_95]
-                                .mean()
-                                .item(),
-                                "anomaly_diff_ood_95_std": diff[ood_mask_95]
-                                .std()
-                                .item(),
-                                "aurc_5_diff": aurc5diff,
-                                "auroc_5_diff": metrics.auc(fpr5diff, tpr5diff),
-                                "auprc_5_diff": metrics.average_precision_score(
-                                    ood_mask_5.long().numpy(), diff.numpy()
-                                ),
-                                "aurc_10": aurc10diff,
-                                "auroc_10_diff": metrics.auc(fpr10diff, tpr10diff),
-                                "auprc_10_diff": metrics.average_precision_score(
-                                    ood_mask_10.long().numpy(), diff.numpy()
-                                ),
-                                "aurc_95_diff": aurc95diff,
-                                "auroc_95_diff": metrics.auc(fpr95diff, tpr95diff),
-                                "auprc_95_diff": metrics.average_precision_score(
-                                    ood_mask_95.long().numpy(), diff.numpy()
-                                ),
-                            }
-                        )
+                        # Mahalanobis distances (md)
+                        print("Mahal eval")
+                        md = eval_pmri_MD(cfg, model_adapted, data["eval"])
+                        for adapter in md:
+                            tmp_data = md[adapter]
+                            if vendor == "siemens":
+                                reg_min = tmp_data.min().item()
+                                reg_max = tmp_data.max().item()
+                                train_md_distances[
+                                    f"{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_val"
+                                ] = {"min": reg_min, "max": reg_max}
+                            else:
+                                reg_min = np.min(
+                                    [
+                                        train_md_distances[
+                                            f"{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_val"
+                                        ]["min"],
+                                        tmp_data.min().item(),
+                                    ]
+                                )
+                                reg_max = np.max(
+                                    [
+                                        train_md_distances[
+                                            f"{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_val"
+                                        ]["max"],
+                                        tmp_data.max().item(),
+                                    ]
+                                )
+                            norm_tmp_data = (tmp_data - reg_min) / (reg_max - reg_min)
+                            ood_data_5 = tmp_data[ood_mask_5]
+                            id_data_5 = tmp_data[~ood_mask_5]
+                            aurc5 = compute_aurc(
+                                ood_mask_5.numpy(),
+                                norm_tmp_data.numpy(),
+                                positive=False,
+                            )
+                            aurc5i = compute_aurc_i(
+                                model_base_dices.numpy(),
+                                norm_tmp_data.numpy(),
+                                higher_conf_better=True,
+                            )
+                            aurc5e = compute_aurc_e(
+                                ood_mask_5.numpy(),
+                                norm_tmp_data.numpy(),
+                                higher_conf_better=True,
+                            )
+                            fpr5, tpr5, ths5 = metrics.roc_curve(
+                                ood_mask_5.long().numpy(), norm_tmp_data.numpy()
+                            )
+                            ood_data_95 = tmp_data[ood_mask_95]
+                            id_data_95 = tmp_data[~ood_mask_95]
+                            collected_stats_md.append(
+                                {
+                                    "model": model,
+                                    "dim_red_mode": dim_red_mode,
+                                    "n_dims": n_dims,
+                                    "vendor": f"{vendor}_test",
+                                    "iteration": iter,
+                                    "layer": adapter,
+                                    "md_mean": tmp_data.mean().item(),
+                                    "md_std": tmp_data.mean().item(),
+                                    "sprcorr": stats.spearmanr(
+                                        model_base_dices.numpy(), tmp_data.numpy()
+                                    )[0],
+                                    "num_ood_5": ood_data_5.shape[0],
+                                    "num_id_5": id_data_5.shape[0],
+                                    "md_ood_5_mean": tmp_data[ood_mask_5].mean().item(),
+                                    "md_ood_5_std": tmp_data[ood_mask_5].std().item(),
+                                    "md_id_5_mean": tmp_data[~ood_mask_5].mean().item(),
+                                    "md_id_5_std": tmp_data[~ood_mask_5].std().item(),
+                                    "aurc_5": aurc5,
+                                    "aurc_5i": aurc5i,
+                                    "aurc_5e": aurc5e,
+                                    "auroc_5": metrics.auc(fpr5, tpr5),
+                                    "auprc_5": metrics.average_precision_score(
+                                        ood_mask_5.long().numpy(), norm_tmp_data.numpy()
+                                    ),
+                                    "num_ood_95": ood_data_95.shape[0],
+                                    "num_id_95": id_data_95.shape[0],
+                                }
+                            )
+                            #     plt.savefig(f'{OUT_PATH}/eval_images/{model}_{adapter}_{iter}_{dim_red_mode}_{n_dims}_{vendor}_erc.png')
+                        for layer in layer_names:
+                            adapters = [
+                                DimReductAdapter(
+                                    layer,
+                                    n_dims,
+                                    cfg.unet[DATA_KEY].training.batch_size,
+                                    mode=dim_red_mode,
+                                    pre_fit=True,
+                                    fit_gaussian=False,
+                                    undo_dim=True,
+                                    project=cfg.wandb.project,
+                                )
+                            ]
+                            adapters = nn.ModuleList(adapters)
+                            model_adapted = DimReductModuleWrapper(
+                                model=model_base, adapters=adapters, upstream_hooks=True
+                            )
+                            model_adapted = model_adapted.to(device)
+                            model_adapted.eval()
+                            print(f"Anomaly scores {layer}")
+                            mod_dices, mod_entropy, mod_probs = eval_pmri_dice_entropy(
+                                cfg, model_adapted, data["eval"]
+                            )
+                            mod_probs = mod_probs.to(device)
+                            diff = torch.abs(model_base_probs - mod_probs)
+                            diff = diff.mean(dim=(1, 2, 3)).detach().cpu()
+                            mse = F.mse_loss(
+                                model_base_probs, mod_probs, reduction="none"
+                            )
+                            mse = mse.mean(dim=(1, 2, 3)).detach().cpu()
+                            fpr5diff, tpr5diff, ths5diff = metrics.roc_curve(
+                                ood_mask_5.long().numpy(), diff.numpy()
+                            )
+                            aurc5diff = compute_aurc(
+                                ood_mask_5.numpy(), diff.numpy(), positive=False
+                            )
+                            aurc5idiff = compute_aurc_i(
+                                model_base_dices.numpy(),
+                                diff.numpy(),
+                                higher_conf_better=True,
+                            )
+                            aurc5ediff = compute_aurc_e(
+                                ood_mask_5.numpy(),
+                                diff.numpy(),
+                                higher_conf_better=True,
+                            )
+                            fpr5mse, tpr5mse, ths5mse = metrics.roc_curve(
+                                ood_mask_5.long().numpy(), mse.numpy()
+                            )
+                            aurc5mse = compute_aurc(
+                                ood_mask_5.numpy(), mse.numpy(), positive=False
+                            )
+                            aurc5imse = compute_aurc_i(
+                                model_base_dices.numpy(),
+                                mse.numpy(),
+                                higher_conf_better=True,
+                            )
+                            aurc5emse = compute_aurc_e(
+                                ood_mask_5.numpy(), mse.numpy(), higher_conf_better=True
+                            )
+                            fpr5ent, tpr5ent, ths5ent = metrics.roc_curve(
+                                ood_mask_5.long().numpy(), mod_entropy.numpy()
+                            )
+                            aurc5ent = compute_aurc(
+                                ood_mask_5.numpy(), mod_entropy.numpy(), positive=True
+                            )
+                            aurc5ient = compute_aurc_i(
+                                model_base_dices.numpy(),
+                                mod_entropy.numpy(),
+                                higher_conf_better=True,
+                            )
+                            aurc5eent = compute_aurc_e(
+                                ood_mask_5.numpy(),
+                                mod_entropy.numpy(),
+                                higher_conf_better=True,
+                            )
+                            collected_stats_dim_ent.append(
+                                {
+                                    "model": model,
+                                    "dim_red_mode": dim_red_mode,
+                                    "n_dims": n_dims,
+                                    "vendor": f"{vendor}_test",
+                                    "iteration": iter,
+                                    "layer": layer,
+                                    "entropy_mean": mod_entropy.mean().item(),
+                                    "entropy_std": mod_entropy.std().item(),
+                                    "entropy_ood_5_mean": mod_entropy[ood_mask_5]
+                                    .mean()
+                                    .item(),
+                                    "entropy_ood_5_std": mod_entropy[ood_mask_5]
+                                    .std()
+                                    .item(),
+                                    "entropy_id_5_mean": mod_entropy[~ood_mask_5]
+                                    .mean()
+                                    .item(),
+                                    "entropy_id_5_std": mod_entropy[~ood_mask_5]
+                                    .std()
+                                    .item(),
+                                    "aurc_5_ent": aurc5ent,
+                                    "aurc_5i_ent": aurc5ient,
+                                    "aurc_5e_ent": aurc5eent,
+                                    "auroc_5_ent": metrics.auc(fpr5ent, tpr5ent),
+                                    "auprc_5_ent": metrics.average_precision_score(
+                                        ood_mask_5.long().numpy(), mod_entropy.numpy()
+                                    ),
+                                    "anomaly_diff_mean": diff.mean().item(),
+                                    "anomaly_diff_std": diff.std().item(),
+                                    "anomaly_diff_ood_5_mean": diff[ood_mask_5]
+                                    .mean()
+                                    .item(),
+                                    "anomaly_diff_ood_5_std": diff[ood_mask_5]
+                                    .std()
+                                    .item(),
+                                    "anomaly_diff_id_5_mean": diff[~ood_mask_5]
+                                    .mean()
+                                    .item(),
+                                    "anomaly_diff_id_5_std": diff[~ood_mask_5]
+                                    .std()
+                                    .item(),
+                                    "aurc_5_diff": aurc5diff,
+                                    "aurc_5i_diff": aurc5idiff,
+                                    "aurc_5e_diff": aurc5ediff,
+                                    "auroc_5_diff": metrics.auc(fpr5diff, tpr5diff),
+                                    "auprc_5_diff": metrics.average_precision_score(
+                                        ood_mask_5.long().numpy(), diff.numpy()
+                                    ),
+                                    "anomaly_mse_mean": mse.mean().item(),
+                                    "anomaly_mse_std": mse.std().item(),
+                                    "anomaly_mse_ood_5_mean": mse[ood_mask_5]
+                                    .mean()
+                                    .item(),
+                                    "anomaly_mse_ood_5_std": mse[ood_mask_5]
+                                    .std()
+                                    .item(),
+                                    "anomaly_mse_id_5_mean": mse[~ood_mask_5]
+                                    .mean()
+                                    .item(),
+                                    "anomaly_mse_id_5_std": mse[~ood_mask_5]
+                                    .std()
+                                    .item(),
+                                    "aurc_5_mse": aurc5mse,
+                                    "aurc_5i_mse": aurc5imse,
+                                    "aurc_5e_mse": aurc5emse,
+                                    "auroc_5_mse": metrics.auc(fpr5mse, tpr5mse),
+                                    "auprc_5_mse": metrics.average_precision_score(
+                                        ood_mask_5.long().numpy(), mse.numpy()
+                                    ),
+                                }
+                            )
 
-
-df_md = pd.DataFrame(collected_stats_md)
-df_md.to_csv(f"{OUT_PATH}/eval_data/mahal_dist_stats_heart.csv", index=False)
-df_dim_ent = pd.DataFrame(collected_stats_dim_ent)
-df_dim_ent.to_csv(f"{OUT_PATH}/eval_data/dim_ent_stats_heart.csv", index=False)
-with open(f"{OUT_PATH}/eval_data/model_stats_heart.json", "w") as f:
-    json.dump(model_data, f)
+    df_md = pd.DataFrame(collected_stats_md)
+    df_md.to_csv(f"{OUT_PATH}/eval_data/mahal_dist_{DATA_KEY}_fstats.csv", index=False)
+    df_dim_ent = pd.DataFrame(collected_stats_dim_ent)
+    df_dim_ent.to_csv(f"{OUT_PATH}/eval_data/dim_ent_{DATA_KEY}_stats.csv", index=False)
+    with open(f"{OUT_PATH}/eval_data/model_fstats_{DATA_KEY}.json", "w") as f:
+        json.dump(model_data, f)

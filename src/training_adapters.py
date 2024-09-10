@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 REPO_PATH = "/workspace/repositories/DSSQ/src"
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 sys.path.append(REPO_PATH)
 
 from omegaconf import OmegaConf
@@ -50,7 +50,7 @@ dataloader = DataLoader(
 print(f"Length of dataset: {len(dataset)}")
 
 DIM_RED_MODES = ["IPCA", "PCA"]
-for iteration in range(1, 3):
+for iteration in range(5):
     OmegaConf.update(cfg, "run.iteration", iteration)
     for unet_name in ["monai-64-4-4", "swinunetr"]:
         cfg.unet[DATA_KEY].pre = unet_name
