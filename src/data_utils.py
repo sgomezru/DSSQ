@@ -552,6 +552,7 @@ def get_eval_data(
 
 def get_mnm_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf):
     datapath = cfg.data.heart.mnm.data_path
+    mode = cfg.unet.heart.training.mode
     data = {}
     if train_set:
         print(
@@ -561,6 +562,7 @@ def get_mnm_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf)
             datapath=datapath,
             vendor=cfg.unet.heart.training.vendor,
             split="train",
+            mode=mode,
             load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
         )
@@ -572,6 +574,7 @@ def get_mnm_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf)
             datapath=datapath,
             vendor=cfg.unet.heart.training.vendor,
             split="valid" if cfg.unet.heart.training.validation is True else "train",
+            mode=mode,
             load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
             subset=cfg.unet.heart.training.subset,
@@ -585,6 +588,7 @@ def get_mnm_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf)
             datapath=datapath,
             vendor=cfg.unet.heart.training.vendor,
             split="eval",
+            mode=mode,
             load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
             transform=transforms.get_transforms("eval_io_transforms"),

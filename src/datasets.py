@@ -161,11 +161,14 @@ class MnMDataset(Dataset):
         transform=None,
         subset=False,
         one_class=False,
+        mode="vendor",
+        train_scanner=False,
         n_slices_per_case=3,
         seed=42,
     ):
         assert vendor in ["siemens", "ge", "philips"], "Invalid vendor"
         assert split in ["all", "train", "valid", "eval"]
+        assert mode in ["vendor", "scanner"]
         self.vendor = vendor
         self._datapath = Path(datapath).resolve()
         self._split = split
@@ -176,6 +179,10 @@ class MnMDataset(Dataset):
         self._one_class = one_class
         self._transform = transform
         self._n_slices_per_case = n_slices_per_case
+        self._mode = mode
+        if self._mode == "scanner":
+            self.scanner = "SymphonyTim"
+            self._train_scanner = train_scanner
         self._data_info = pd.read_csv(
             self._datapath / "dataset_information.csv", index_col=0
         )
@@ -247,8 +254,24 @@ class MnMDataset(Dataset):
     def _load_data(self):
         self.input = []
         self.target = []
+        self.meta = []
         for case in self._data_info.index:
-            if self.vendor in self._data_info.loc[case].VENDOR.lower():
+            if (
+                self._mode == "vendor"
+                and self.vendor in self._data_info.loc[case].VENDOR.lower()
+            ) or (
+                self._mode == "scanner"
+                and (
+                    (
+                        self._train_scanner
+                        and self._data_info.loc[case].SCANNER == self.scanner
+                    )
+                    or (
+                        not self._train_scanner
+                        and self._data_info.loc[case].SCANNER != self.scanner
+                    )
+                )
+            ):
                 case_path = self._datapath / "dataset" / f"{case:03d}"
                 modes = ["ES", "ED"]
                 case_img = []
@@ -271,6 +294,10 @@ class MnMDataset(Dataset):
                     case_gt.append(y)
                 self.input.append(np.concatenate(case_img, axis=-1))
                 self.target.append(np.concatenate(case_gt, axis=-1))
+                if self._mode == "scanner":
+                    self.meta.append(
+                        [self._data_info.loc[case].SCANNER] * self.input[-1].shape[-1]
+                    )
         # Split here
         if self._split in ["train", "valid"]:
             self._split_subset(split_pct=0.8, larger_split="train")

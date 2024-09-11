@@ -20,6 +20,7 @@ class DimReductAdapter(nn.Module):
         fit_gaussian=False,
         fit_scaler=False,
         undo_dim=False,
+        store_acts=False,
         project="",
         device="cuda:0",
         debug=False,
@@ -34,6 +35,7 @@ class DimReductAdapter(nn.Module):
         self.fit_gaussian = fit_gaussian
         self.fit_scaler = fit_scaler
         self.undo_dim = undo_dim
+        self.store_acts = store_acts
         self.project = project
         self.debug = debug
         self.module_path = "/workspace/out/dms/"
@@ -249,6 +251,8 @@ class DimReductAdapter(nn.Module):
                     x_reversed = self.undo_dim_reduce(x_np, x_shape)
                     return x_reversed
                 else:
+                    if self.store_acts is True:
+                        self.reduced_acts.append(x_sc)
                     self._mahalanobis_dist(x_sc)
         elif self.mode == "AVG_POOL":
             x = self.dim_reduce(x)

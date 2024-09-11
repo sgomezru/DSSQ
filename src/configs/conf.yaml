@@ -38,6 +38,7 @@ unet:
         training:
             vendor: 'siemens'
             load_only_present: True
+            mode: 'scanner'
             augment: True
             validation: True
             subset: False
