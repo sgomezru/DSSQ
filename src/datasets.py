@@ -183,10 +183,13 @@ class MnMDataset(Dataset):
         if self._mode == "scanner":
             self.scanner = "SymphonyTim"
             self._train_scanner = train_scanner
+            print("Train scanner:", self._train_scanner)
+        print(f"Loading data... {self._mode} mode")
         self._data_info = pd.read_csv(
             self._datapath / "dataset_information.csv", index_col=0
         )
         self._load_data()
+        print(f"Data loaded. Number of slices: {len(self)}")
 
     def _split_subset(self, split_pct=0.8, larger_split="train"):
         num_cases = list(range(len(self.input)))

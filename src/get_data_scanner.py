@@ -28,11 +28,10 @@ from utils import epoch_average
 eps = 1e-10
 MODE = "eval"
 LOG = False
-DATA_KEY = "prostate"
+DATA_KEY = "heart"
 LOAD_ONLY_PRESENT = True
 VALIDATION = True
-# EXTRA_DESCRIPTION = "_scmode"
-EXTRA_DESCRIPTION = "_base"
+EXTRA_DESCRIPTION = "_scmode"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
@@ -40,7 +39,7 @@ print(f"Device: {device}")
 models = ["monai-64-4-4", "swinunetr"]
 train_vendors = ["siemens"]
 test_vendors = ["siemens", "philips", "ge"]
-dim_red_modes = ["IPCA", "PCA", "AVG_POOL"]
+dim_red_modes = ["PCA", "AVG_POOL"]
 
 
 def load_conf(unet_name="", iteration=0, data_key="prostate"):
@@ -373,20 +372,19 @@ def compute_aurc(y_true, y_prob, positive=False, plot=False):
     return aurc
 
 
-for DATA_KEY in ["prostate", "heart"]:
+for DATA_KEY in ["heart"]:
     collected_stats_md = []
     collected_stats_dim_ent = []
     train_md_distances = {}
     roc_data = {}
     model_data = {}
-    for vendor in test_vendors:
+    for train_scanner in [True, False]:
         cfg, _ = load_conf(data_key=DATA_KEY)
-        cfg.unet[DATA_KEY].training.subset = (
-            "validation" if vendor in train_vendors else False
-        )
-        cfg.unet[DATA_KEY].training.vendor = vendor
+        cfg.unet[DATA_KEY].training.train_scanner = train_scanner
+        cfg.unet[DATA_KEY].training.subset = "validation" if train_scanner else False
+        vendor = "train" if train_scanner else "test"
         data = get_eval_data(train_set=False, val_set=False, eval_set=True, cfg=cfg)
-        for iter in range(5):
+        for iter in range(3):
             for model in models:
                 cfg, layer_names = load_conf(model, iteration=iter, data_key=DATA_KEY)
                 model_base, state_dict = get_unet(cfg, return_state_dict=True)
@@ -402,13 +400,13 @@ for DATA_KEY in ["prostate", "heart"]:
                     "mean_entropy": model_base_entropy.mean().item(),
                     "std_entropy": model_base_entropy.std().item(),
                 }
-                if vendor == "siemens":
+                if vendor == "train":
                     ood_dice_th_5 = torch.quantile(model_base_dices, 0.05).item()
                     model_data[f"{model}_{vendor}_test_{iter}"]["ood_dice_th_5"] = (
                         ood_dice_th_5
                     )
                 else:
-                    ood_dice_th_5 = model_data[f"{model}_siemens_test_{iter}"][
+                    ood_dice_th_5 = model_data[f"{model}_train_test_{iter}"][
                         "ood_dice_th_5"
                     ]
                 ood_mask_5 = (model_base_dices < ood_dice_th_5).squeeze()
@@ -417,9 +415,7 @@ for DATA_KEY in ["prostate", "heart"]:
                     if dim_red_mode == "AVG_POOL":
                         n_dims_iter = [1e4]
                     elif dim_red_mode == "PCA":
-                        n_dims_iter = [2, 4, 8, 16, 512, 960]
-                    elif dim_red_mode == "IPCA":
-                        n_dims_iter = [2, 4, 8, 16]
+                        n_dims_iter = [2, 4, 8, 16, 512]
                     for n_dims in n_dims_iter:
                         print(
                             f"Running iter {iter} for vendor {vendor}, {dim_red_mode} mode of {n_dims} dims"
@@ -447,7 +443,7 @@ for DATA_KEY in ["prostate", "heart"]:
                         md = eval_pmri_MD(cfg, model_adapted, data["eval"])
                         for adapter in md:
                             tmp_data = md[adapter]
-                            if vendor == "siemens":
+                            if vendor == "train":
                                 reg_min = tmp_data.min().item()
                                 reg_max = tmp_data.max().item()
                                 train_md_distances[
@@ -675,8 +671,12 @@ for DATA_KEY in ["prostate", "heart"]:
                             )
 
     df_md = pd.DataFrame(collected_stats_md)
-    df_md.to_csv(f"{OUT_PATH}/eval_data/mahal_dist_{DATA_KEY}_final.csv", index=False)
+    df_md.to_csv(
+        f"{OUT_PATH}/eval_data/mahal_dist_{DATA_KEY}_fstats_scanner.csv", index=False
+    )
     df_dim_ent = pd.DataFrame(collected_stats_dim_ent)
-    df_dim_ent.to_csv(f"{OUT_PATH}/eval_data/dim_ent_{DATA_KEY}_final.csv", index=False)
-    with open(f"{OUT_PATH}/eval_data/model_fstats_{DATA_KEY}.json", "w") as f:
+    df_dim_ent.to_csv(
+        f"{OUT_PATH}/eval_data/dim_ent_{DATA_KEY}_stats_scanner.csv", index=False
+    )
+    with open(f"{OUT_PATH}/eval_data/model_fstats_{DATA_KEY}_scanner.json", "w") as f:
         json.dump(model_data, f)

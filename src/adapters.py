@@ -69,7 +69,7 @@ class DimReductAdapter(nn.Module):
             if self.mode == "IPCA":
                 self.dim_module = IncrementalPCA(n_components=32, batch_size=self.bs)
             elif self.mode == "PCA":
-                self.dim_module = PCA(n_components=960)
+                self.dim_module = PCA(n_components=self.n_dims)
             if self.debug:
                 print(f"Instantiated new {self.mode} module")
         elif self.pre_fit is True:

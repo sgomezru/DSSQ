@@ -555,40 +555,58 @@ def get_mnm_data(train_set: bool, val_set: bool, eval_set: bool, cfg: OmegaConf)
     mode = cfg.unet.heart.training.mode
     data = {}
     if train_set:
-        print(
-            f"Loading training M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
-        )
+        if mode == "vendor":
+            print(
+                f"Loading validation M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
+            )
+        elif mode == "scanner":
+            print(
+                f"Loading validation M&M dataset for {'training' if cfg.unet.heart.training.train_scanner is True else 'eval'} scanner"
+            )
         data["train"] = MnMDataset(
             datapath=datapath,
             vendor=cfg.unet.heart.training.vendor,
             split="train",
             mode=mode,
+            train_scanner=cfg.unet.heart.training.train_scanner,
             load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
         )
     if val_set:
-        print(
-            f"Loading validation M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
-        )
+        if mode == "vendor":
+            print(
+                f"Loading validation M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
+            )
+        elif mode == "scanner":
+            print(
+                f"Loading validation M&M dataset for {'training' if cfg.unet.heart.training.train_scanner is True else 'eval'} scanner"
+            )
         data["val"] = MnMDataset(
             datapath=datapath,
             vendor=cfg.unet.heart.training.vendor,
             split="valid" if cfg.unet.heart.training.validation is True else "train",
             mode=mode,
+            train_scanner=cfg.unet.heart.training.train_scanner,
             load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
             subset=cfg.unet.heart.training.subset,
         )
     if eval_set:
-        print(
-            f"Loading evaluation M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
-        )
+        if mode == "vendor":
+            print(
+                f"Loading evaluation M&M dataset for vendor {cfg.unet.heart.training.vendor} ..."
+            )
+        elif mode == "scanner":
+            print(
+                f"Loading evaluation M&M dataset for {'training' if cfg.unet.heart.training.train_scanner is True else 'eval'} scanner ..."
+            )
         transforms = Transforms()
         data["eval"] = MnMDataset(
             datapath=datapath,
             vendor=cfg.unet.heart.training.vendor,
             split="eval",
             mode=mode,
+            train_scanner=cfg.unet.heart.training.train_scanner,
             load_only_present=cfg.unet.heart.training.load_only_present,
             format=cfg.format,
             transform=transforms.get_transforms("eval_io_transforms"),
