@@ -16,27 +16,6 @@ ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/hpcx/ompi/lib"
 ### Update
 RUN apt-get -y update && apt-get -y upgrade
 
-### OPENGL
-# RUN apt-get update && apt-get install -y \
-# 	libassimp-dev \ 
-# 	libjpeg-dev \
-# 	libpng-dev \
-# 	libglu1-mesa-dev \
-# 	freeglut3-dev \
-# 	mesa-common-dev \
-# 	libgl1-mesa-dev \
-# 	libegl1-mesa-dev
-
-# RUN apt-get update && apt-get install -y -qq --no-install-recommends \
-#     libglvnd0 \
-#     libglx0 \
-#     libxext6 \
-#     libx11-6 \
-#     libglfw3 \
-#     libglfw3-dev \
-#     libpcl-dev \
-#     libfreetype6-dev
-
 ### Utils
 RUN apt-get install -y \
 	htop \
@@ -62,7 +41,8 @@ RUN pip install \
     scipy \
     nibabel \
     matplotlib \
-    scikit-image
+    scikit-image \
+	gdown
 
 ### - GIT
 ## setup
@@ -73,9 +53,10 @@ RUN rm -r *
 WORKDIR /workspace/repositories
 RUN git clone https://github.com/sgomezru/DSSQ.git
 RUN mkdir -p /data/Data
-ENV MOUNT_DATA_PATH="/data/Data"
 RUN mkdir -p /src/DSSQ
-ENV MOUNT_SRC_PATH="/src/DSSQ"
+RUN gdown --folder --id 17iOAe8IfiGL_oEs4x2hiQEpkFIjdwbJt -O /workspace/out/
+ENV MOUNT_DATA_PATH="/data/Data"
+ENV OUT_PATH="/workspace/out"
 
 ### - CLEANUP
 RUN apt-get autoremove -y && rm -rf /tmp/* /var/tmp/* && apt-get clean && rm -rf /var/lib/apt/lists/*
